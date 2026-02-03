@@ -1,0 +1,37 @@
+# ============================================================
+# Aitachi.cloud 邮件配置模板
+# ============================================================
+# 
+# 请根据您的邮箱服务商，选择相应的配置
+#
+
+# ====================== QQ邮箱配置 ======================
+EMAIL_CONFIG = {
+    "SMTP_HOST": "smtp.qq.com",
+    "SMTP_PORT": 587,
+    "SMTP_USER": "YOUR_EMAIL@qq.com",      # 替换为您的QQ邮箱
+    "SMTP_PASSWORD": "YOUR_AUTH_CODE",     # 替换为授权码（非QQ密码）
+    "FROM_NAME": "Aitachi.cloud",
+    "FROM_EMAIL": "YOUR_EMAIL@qq.com",     # 替换为您的QQ邮箱
+}
+
+# ==================== 163邮箱配置 ====================
+# EMAIL_CONFIG = {
+#     "SMTP_HOST": "smtp.163.com",
+#     "SMTP_PORT": 587,
+#     "SMTP_USER": "YOUR_EMAIL@163.com",
+#     "SMTP_PASSWORD": "YOUR_AUTH_CODE",
+#     "FROM_NAME": "Aitachi.cloud",
+#     "FROM_EMAIL": "YOUR_EMAIL@163.com",
+# }
+
+# ==================== Gmail配置 ====================
+# EMAIL_CONFIG = {
+#     "SMTP_HOST": "smtp.gmail.com",
+#     "SMTP_PORT": 587,
+#     "SMTP_USER": "YOUR_EMAIL@gmail.com",
+#     "SMTP_PASSWORD": "YOUR_APP_PASSWORD",  # 应用专用密码
+#     "FROM_NAME": "Aitachi.cloud",
+#     "FROM_EMAIL": "YOUR_EMAIL@gmail.com",
+# }
+

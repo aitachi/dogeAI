@@ -1,0 +1,23 @@
+# Anthropic API Proxy - Dependencies
+# Python 3.6+
+
+# Web Framework
+fastapi>=0.68.0
+uvicorn[standard]>=0.15.0
+
+# HTTP Client
+httpx>=0.24.0
+
+# Data Validation
+pydantic>=1.8.0
+
+# Email
+email-validator>=1.1.0
+
+# Database (SQLite is built-in, but included for completeness)
+
+# Utilities
+python-multipart>=0.0.5
+
+# Optional: For production deployment
+# gunicorn>=20.1.0

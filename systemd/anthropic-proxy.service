@@ -1,0 +1,34 @@
+[Unit]
+Description=Anthropic API Proxy Service
+Documentation=https://docs.anthropic.com
+After=network.target nginx.service
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root
+Environment="PATH=/root/anthropic-proxy-v2/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/python3 /root/anthropic_proxy_v2.py
+
+# 重启策略
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全设置
+NoNewPrivileges=true
+PrivateTmp=true
+
+# 日志
+StandardOutput=append:/var/log/anthropic-proxy/systemd.log
+StandardError=append:/var/log/anthropic-proxy/systemd-error.log
+
+[Install]
+WantedBy=multi-user.target
