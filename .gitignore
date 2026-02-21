@@ -1,0 +1,53 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# SSL certificates and keys (if they contain sensitive data)
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+ssl/*.p12
+
+# IDE specific files
+.idea/
+.vscode/
+*.iml
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Text files that aren't documentation
+*.txt
+!README.txt
+!LICENSE.txt
+
+# Performance test results
+performance_test.txt
+benchmark.log
