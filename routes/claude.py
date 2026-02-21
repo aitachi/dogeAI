@@ -204,6 +204,9 @@ def register_messages_handler(app):
     @app.post("/v1/messages")
     async def handle_messages(request: Request):
         """处理消息请求"""
+        # 导入监控函数
+        from routes.monitor import start_call_recording, end_call_recording
+
         try:
             body = await request.json()
         except Exception as e:
@@ -225,10 +228,16 @@ def register_messages_handler(app):
         )
 
         openai_body = build_openai_request(body)
+        target_model = openai_body.get('model', original_model)
+
         logger.info(
-            f"转发 -> {openai_body['model']}, max_tokens={openai_body['max_tokens']}, "
+            f"转发 -> {target_model}, max_tokens={openai_body['max_tokens']}, "
             f"目标: {TARGET_BASE_URL}/chat/completions"
         )
+
+        # 开始监控记录
+        request_id, call_id = start_call_recording(target_model, original_model, is_stream)
+        logger.info(f"[Monitor] 记录调用开始: request_id={request_id}, call_id={call_id}")
 
         headers = {
             "Authorization": f"Bearer {TARGET_API_KEY}",
@@ -253,21 +262,40 @@ def register_messages_handler(app):
                     except Exception:
                         err_msg = err_body.decode("utf-8", errors="replace")
                     logger.error(f"上游错误 {resp.status_code}: {err_msg}")
+
+                    # 记录失败
+                    end_call_recording(call_id, "error", error_message=err_msg)
+
                     return JSONResponse(
                         status_code=resp.status_code,
                         content={"type": "error", "error": {"type": "api_error", "message": err_msg}},
                         headers=resp_headers,
                     )
 
+                # 创建流式响应生成器
                 async def _gen():
+                    input_tokens = 0
+                    output_tokens = 0
                     try:
                         async for chunk in stream_sse(resp, original_model):
+                            # 尝试解析token使用情况
+                            if "usage" in chunk:
+                                try:
+                                    data = json.loads(chunk.split("data: ")[1])
+                                    usage = data.get("message_delta", {}).get("usage", {})
+                                    if usage:
+                                        output_tokens = usage.get("output_tokens", 0)
+                                except Exception:
+                                    pass
                             yield chunk
                     except Exception as exc:
                         logger.error(f"流式错误: {exc}\n{traceback.format_exc()}")
+                        end_call_recording(call_id, "error", error_message=str(exc))
                     finally:
                         await resp.aclose()
                         await client.aclose()
+                        # 记录成功完成
+                        end_call_recording(call_id, "success", input_tokens=input_tokens, output_tokens=output_tokens)
 
                 return StreamingResponse(
                     _gen(),
@@ -277,6 +305,7 @@ def register_messages_handler(app):
 
             except httpx.ConnectError as e:
                 logger.error(f"连接失败: {e}")
+                end_call_recording(call_id, "error", error_message=str(e))
                 return JSONResponse(
                     status_code=502,
                     content={"type": "error", "error": {"type": "api_error", "message": f"Connect failed: {e}"}},
@@ -294,6 +323,10 @@ def register_messages_handler(app):
                     except Exception:
                         err_msg = resp.text
                     logger.error(f"上游错误 {resp.status_code}: {err_msg}")
+
+                    # 记录失败
+                    end_call_recording(call_id, "error", error_message=err_msg)
+
                     return JSONResponse(
                         status_code=resp.status_code,
                         content={"type": "error", "error": {"type": "api_error", "message": err_msg}},
@@ -301,10 +334,18 @@ def register_messages_handler(app):
                     )
 
                 anthropic_resp = build_anthropic_response(resp.json(), original_model)
+
+                # 记录成功
+                usage = anthropic_resp.get("usage", {})
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                end_call_recording(call_id, "success", input_tokens=input_tokens, output_tokens=output_tokens)
+
                 logger.info(f"响应 stop_reason={anthropic_resp.get('stop_reason')}")
                 return JSONResponse(content=anthropic_resp, headers=resp_headers)
 
         except httpx.ConnectError as e:
+            end_call_recording(call_id, "error", error_message=str(e))
             return JSONResponse(
                 status_code=502,
                 content={"type": "error", "error": {"type": "api_error", "message": f"Connect failed: {e}"}},

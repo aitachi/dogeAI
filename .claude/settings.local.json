@@ -13,7 +13,9 @@
       "Bash(iptables:*)",
       "Bash(firewall-cmd:*)",
       "Bash(netstat:*)",
-      "Bash(yum:*)"
+      "Bash(yum:*)",
+      "Bash(journalctl:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }
