@@ -115,7 +115,7 @@ def register_monitor_routes(app):
             min-height: 100vh;
         }
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
         header {
@@ -141,59 +141,62 @@ def register_monitor_routes(app):
         }
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
             margin-bottom: 30px;
         }
         .stat-card {
             background: rgba(30, 41, 59, 0.7);
             border-radius: 12px;
-            padding: 20px;
+            padding: 15px;
             border: 1px solid var(--border);
             transition: transform 0.2s, box-shadow 0.2s;
         }
         .stat-card:hover {
-            transform: translateY(-3px);
+            transform: translateY(-2px);
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
         }
         .stat-title {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             color: #94a3b8;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
         .stat-value {
-            font-size: 2.2rem;
+            font-size: 1.8rem;
             font-weight: 700;
             margin-bottom: 5px;
         }
         .stat-change {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             color: #4ade80;
         }
         .models-table {
             background: rgba(30, 41, 59, 0.7);
             border-radius: 12px;
-            overflow: hidden;
+            overflow-x: auto;
             border: 1px solid var(--border);
             margin-bottom: 30px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
+            white-space: nowrap;
         }
         th {
             background: rgba(30, 41, 59, 0.9);
-            padding: 16px 20px;
+            padding: 12px 16px;
             text-align: left;
             font-weight: 600;
             color: #94a3b8;
             border-bottom: 2px solid var(--border);
+            font-size: 0.85rem;
         }
         td {
-            padding: 14px 20px;
+            padding: 12px 16px;
             border-bottom: 1px solid rgba(226, 232, 240, 0.1);
+            font-size: 0.9rem;
         }
         tr:last-child td {
             border-bottom: none;
@@ -205,18 +208,21 @@ def register_monitor_routes(app):
             font-weight: 600;
             color: #60a5fa;
         }
-        .tokens-rate {
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .response-time {
+            font-family: 'SF Mono', Monaco, monospace;
         }
-        .tokens-rate span {
+        .response-time .median {
+            color: #4ade80;
             font-weight: 600;
         }
+        .response-time .range {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
         .status-badge {
-            padding: 4px 12px;
+            padding: 4px 10px;
             border-radius: 20px;
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             font-weight: 600;
         }
         .status-online {
@@ -243,6 +249,15 @@ def register_monitor_routes(app):
             margin-bottom: 15px;
             color: #94a3b8;
             font-size: 0.9rem;
+        }
+        .ttft-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            margin-left: 4px;
         }
         @media (max-width: 768px) {
             .stats-grid {
@@ -291,22 +306,24 @@ def register_monitor_routes(app):
                 <thead>
                     <tr>
                         <th>模型名称</th>
-                        <th>调用次数</th>
-                        <th>当前任务</th>
+                        <th>调用</th>
+                        <th>并发</th>
                         <th>输入 Tokens</th>
                         <th>输出 Tokens</th>
-                        <th>平均响应</th>
+                        <th>中位响应</th>
+                        <th>响应范围</th>
+                        <th>首Token(TTFT)</th>
                         <th>状态</th>
                     </tr>
                 </thead>
                 <tbody id="models-tbody">
-                    <tr><td colspan="7" class="no-data">加载中...</td></tr>
+                    <tr><td colspan="9" class="no-data">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
 
         <div class="footer">
-            <p>AITACHI Cloud · Claude Code Proxy Monitoring v2.2 | 数据每 5 秒自动同步</p>
+            <p>AITACHI Cloud · Claude Code Proxy Monitoring v2.3 | 数据每 5 秒自动同步</p>
         </div>
     </div>
 
@@ -343,6 +360,42 @@ def register_monitor_routes(app):
             }
         }
 
+        function formatResponseTime(model) {
+            const median = model.median_response || 0;
+            const min = model.min_response || 0;
+            const max = model.max_response || 0;
+
+            if (median === 0) {
+                return '<span class="response-time">-</span>';
+            }
+
+            let html = '<span class="response-time">';
+            html += `<span class="median">${median}ms</span>`;
+            if (min > 0 || max > 0) {
+                html += `<br><span class="range">min:${min}ms max:${max}ms</span>`;
+            }
+            html += '</span>';
+            return html;
+        }
+
+        function formatTTFT(model) {
+            const avg = model.avg_ttft || 0;
+            const min = model.min_ttft || 0;
+            const max = model.max_ttft || 0;
+
+            if (avg === 0) {
+                return '<span style="color: #64748b;">-</span>';
+            }
+
+            let html = `<span class="response-time">`;
+            html += `<span class="median">${avg}ms</span>`;
+            if (min > 0 || max > 0) {
+                html += `<br><span class="range">${min}-${max}ms</span>`;
+            }
+            html += `</span>`;
+            return html;
+        }
+
         async function updateDashboard() {
             const now = new Date();
             document.getElementById('last-update').textContent = now.toLocaleTimeString('zh-CN');
@@ -360,7 +413,7 @@ def register_monitor_routes(app):
             tbody.innerHTML = '';
 
             if (!data.models || data.models.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="no-data">暂无数据，等待模型调用...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="no-data">暂无数据，等待模型调用...</td></tr>';
                 return;
             }
 
@@ -372,7 +425,9 @@ def register_monitor_routes(app):
                     <td><span class="status-badge status-${model.status}">${model.concurrent}</span></td>
                     <td>${model.tokens_in.toLocaleString()}</td>
                     <td>${model.tokens_out.toLocaleString()}</td>
-                    <td>${model.avg_response}ms</td>
+                    <td>${formatResponseTime(model)}</td>
+                    <td>${formatResponseTime(model)}</td>
+                    <td>${formatTTFT(model)}</td>
                     <td><span class="status-badge status-${model.status}">${model.status === 'online' ? '在线' : '空闲'}</span></td>
                 `;
                 tbody.appendChild(row);
