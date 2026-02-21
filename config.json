@@ -1,0 +1,43 @@
+{
+    "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key": "sk-a9a4edb1b4214016baa11c9be3b9fec4",
+    "model_map": {
+        "claude-opus-4-6-20251101": "qwen-long",
+        "claude-opus-4-6-1m": "qwen-long",
+        "claude-opus-4-6": "qwen-coder-latest",
+        "claude-opus-4-20250514": "qwen-coder-latest",
+        "claude-opus-5-20250514": "qwen-coder-latest",
+        "claude-3-opus-20240229": "qwen-coder-latest",
+        "claude-sonnet-4-5-20250929": "qwen-plus-latest",
+        "claude-sonnet-4-20250514": "qwen-plus-latest",
+        "claude-3-5-sonnet-20241022": "qwen-plus-latest",
+        "claude-3-5-sonnet-20240620": "qwen-plus-latest",
+        "claude-haiku-4-5-20251001": "qwen-turbo",
+        "claude-3-haiku-20240307": "qwen-turbo",
+        "claude-3-5-haiku-20241022": "qwen-turbo",
+        "qwen-long": "qwen-long",
+        "qwen-coder-latest": "qwen-coder-latest",
+        "qwen-turbo": "qwen-turbo",
+        "qwen-plus": "qwen-plus-latest",
+        "qwen-max": "qwen-coder-latest",
+        "qwen-coder": "qwen-coder-latest"
+    },
+    "max_output_tokens_limit": {
+        "qwen-long": 30000,
+        "qwen-coder-latest": 8192,
+        "qwen-plus-latest": 8192,
+        "qwen-turbo": 8192,
+        "qwen-max-latest": 8192
+    },
+    "default_model": "qwen-plus-latest",
+    "default_max_tokens": 8192,
+    "default_params": {
+        "temperature": 0.7,
+        "top_p": 0.9
+    },
+    "http_port": 3001,
+    "https_port": 443,
+    "log_level": "INFO",
+    "request_timeout": 300,
+    "max_retries": 3
+}

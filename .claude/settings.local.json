@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip3 list:*)",
+      "Bash(python3:*)",
+      "Bash(bash:*)",
+      "Bash(pip3:*)",
+      "Bash(curl:*)",
+      "Bash(ss:*)",
+      "Bash(systemctl:*)",
+      "Bash(cat:*)",
+      "Bash(nginx:*)",
+      "Bash(iptables:*)",
+      "Bash(firewall-cmd:*)",
+      "Bash(netstat:*)",
+      "Bash(yum:*)"
+    ]
+  }
+}
