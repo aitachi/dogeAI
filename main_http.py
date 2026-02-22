@@ -49,10 +49,15 @@ async def log_every_request(request: Request, call_next):
 register_all_routes(app)
 
 if __name__ == "__main__":
+    from config import API_BASE_URL, DEFAULT_MODEL, MODEL_MAP
     print("=" * 60)
-    print("  Claude Code Proxy v3.3 (HTTP Only)")
+    print("  Claude Code Proxy v4.1 - AITACHI Cloud (Native Protocol)")
     print(f"  HTTP  -> http://0.0.0.0:{HTTP_PORT}")
     print(f"  HTTPS -> 由nginx在443端口代理")
+    print("=" * 60)
+    print(f"  API Base URL : {API_BASE_URL}")
+    print(f"  默认模型     : {DEFAULT_MODEL}")
+    print(f"  模型映射     : {MODEL_MAP}")
     print("=" * 60)
     
     logger.info(f"HTTP 代理启动 -> http://0.0.0.0:{HTTP_PORT}")

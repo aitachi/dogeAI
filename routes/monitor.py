@@ -50,6 +50,7 @@ def register_monitor_routes(app):
         logger.debug("[Monitor] GET /api/stats")
 
         metrics = get_metrics()
+
         stats = {
             "totalCalls": metrics["totalCalls"],
             "onlineModels": metrics["onlineModels"],
@@ -86,7 +87,7 @@ def register_monitor_routes(app):
 
     @app.get("/monitor.html")
     async def monitor_page(request: Request):
-        """监控页面"""
+        """监控页面 - AITACHI Cloud"""
         from fastapi.responses import HTMLResponse
 
         html_content = """<!DOCTYPE html>
@@ -94,7 +95,7 @@ def register_monitor_routes(app):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AITACHI Cloud - Claude Proxy 实时监控</title>
+    <title>AITACHI Cloud - Claude Proxy 监控中心</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -104,6 +105,7 @@ def register_monitor_routes(app):
             --dark: #1e293b;
             --light: #f1f5f9;
             --border: #e2e8f0;
+            --aitachi: #cc785c;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -115,7 +117,7 @@ def register_monitor_routes(app):
             min-height: 100vh;
         }
         .container {
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
         }
         header {
@@ -130,7 +132,7 @@ def register_monitor_routes(app):
         h1 {
             font-size: 2.5rem;
             margin-bottom: 10px;
-            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            background: linear-gradient(90deg, #3b82f6, #cc785c);
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
@@ -141,7 +143,7 @@ def register_monitor_routes(app):
         }
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 15px;
             margin-bottom: 30px;
         }
@@ -150,6 +152,7 @@ def register_monitor_routes(app):
             border-radius: 12px;
             padding: 15px;
             border: 1px solid var(--border);
+            border-left: 4px solid var(--aitachi);
             transition: transform 0.2s, box-shadow 0.2s;
         }
         .stat-card:hover {
@@ -157,7 +160,7 @@ def register_monitor_routes(app):
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
         }
         .stat-title {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: #94a3b8;
             margin-bottom: 8px;
             text-transform: uppercase;
@@ -167,10 +170,6 @@ def register_monitor_routes(app):
             font-size: 1.8rem;
             font-weight: 700;
             margin-bottom: 5px;
-        }
-        .stat-change {
-            font-size: 0.8rem;
-            color: #4ade80;
         }
         .models-table {
             background: rgba(30, 41, 59, 0.7);
@@ -202,11 +201,11 @@ def register_monitor_routes(app):
             border-bottom: none;
         }
         tr:hover {
-            background: rgba(59, 130, 246, 0.1);
+            background: rgba(204, 120, 92, 0.1);
         }
         .model-name {
             font-weight: 600;
-            color: #60a5fa;
+            color: #cc785c;
         }
         .response-time {
             font-family: 'SF Mono', Monaco, monospace;
@@ -214,10 +213,6 @@ def register_monitor_routes(app):
         .response-time .median {
             color: #4ade80;
             font-weight: 600;
-        }
-        .response-time .range {
-            color: #94a3b8;
-            font-size: 0.8rem;
         }
         .status-badge {
             padding: 4px 10px;
@@ -250,15 +245,6 @@ def register_monitor_routes(app):
             color: #94a3b8;
             font-size: 0.9rem;
         }
-        .ttft-badge {
-            display: inline-block;
-            padding: 2px 6px;
-            background: rgba(245, 158, 11, 0.2);
-            color: #fbbf24;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            margin-left: 4px;
-        }
         @media (max-width: 768px) {
             .stats-grid {
                 grid-template-columns: 1fr;
@@ -273,7 +259,7 @@ def register_monitor_routes(app):
     <div class="container">
         <header>
             <h1>AITACHI Cloud · Claude Proxy 监控中心</h1>
-            <p class="subtitle">实时同步 · 毫秒级更新 · 全链路可观测</p>
+            <p class="subtitle">实时同步 · 全链路可观测 · 智能中转</p>
         </header>
 
         <div class="last-updated">最后更新: <span id="last-update">--:--:--</span></div>
@@ -282,22 +268,22 @@ def register_monitor_routes(app):
             <div class="stat-card">
                 <div class="stat-title">总调用数</div>
                 <div class="stat-value" id="total-calls">0</div>
-                <div class="stat-change">最近1小时</div>
+                <div class="stat-title">最近1小时</div>
             </div>
             <div class="stat-card">
                 <div class="stat-title">在线模型</div>
                 <div class="stat-value" id="online-models">0</div>
-                <div class="stat-change">活跃中</div>
+                <div class="stat-title">活跃中</div>
             </div>
             <div class="stat-card">
                 <div class="stat-title">Token 输入速率</div>
                 <div class="stat-value" id="tokens-in-rate">0</div>
-                <div class="stat-change">tokens/sec</div>
+                <div class="stat-title">tokens/sec</div>
             </div>
             <div class="stat-card">
                 <div class="stat-title">Token 输出速率</div>
                 <div class="stat-value" id="tokens-out-rate">0</div>
-                <div class="stat-change">tokens/sec</div>
+                <div class="stat-title">tokens/sec</div>
             </div>
         </div>
 
@@ -311,19 +297,18 @@ def register_monitor_routes(app):
                         <th>输入 Tokens</th>
                         <th>输出 Tokens</th>
                         <th>中位响应</th>
-                        <th>响应范围</th>
                         <th>首Token(TTFT)</th>
                         <th>状态</th>
                     </tr>
                 </thead>
                 <tbody id="models-tbody">
-                    <tr><td colspan="9" class="no-data">加载中...</td></tr>
+                    <tr><td colspan="8" class="no-data">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
 
         <div class="footer">
-            <p>AITACHI Cloud · Claude Code Proxy Monitoring v2.3 | 数据每 5 秒自动同步</p>
+            <p>AITACHI Cloud · Claude Code Proxy Monitoring v4.1 | 数据每 5 秒自动同步</p>
         </div>
     </div>
 
@@ -360,42 +345,6 @@ def register_monitor_routes(app):
             }
         }
 
-        function formatResponseTime(model) {
-            const median = model.median_response || 0;
-            const min = model.min_response || 0;
-            const max = model.max_response || 0;
-
-            if (median === 0) {
-                return '<span class="response-time">-</span>';
-            }
-
-            let html = '<span class="response-time">';
-            html += `<span class="median">${median}ms</span>`;
-            if (min > 0 || max > 0) {
-                html += `<br><span class="range">min:${min}ms max:${max}ms</span>`;
-            }
-            html += '</span>';
-            return html;
-        }
-
-        function formatTTFT(model) {
-            const avg = model.avg_ttft || 0;
-            const min = model.min_ttft || 0;
-            const max = model.max_ttft || 0;
-
-            if (avg === 0) {
-                return '<span style="color: #64748b;">-</span>';
-            }
-
-            let html = `<span class="response-time">`;
-            html += `<span class="median">${avg}ms</span>`;
-            if (min > 0 || max > 0) {
-                html += `<br><span class="range">${min}-${max}ms</span>`;
-            }
-            html += `</span>`;
-            return html;
-        }
-
         async function updateDashboard() {
             const now = new Date();
             document.getElementById('last-update').textContent = now.toLocaleTimeString('zh-CN');
@@ -413,7 +362,7 @@ def register_monitor_routes(app):
             tbody.innerHTML = '';
 
             if (!data.models || data.models.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" class="no-data">暂无数据，等待模型调用...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="no-data">暂无数据，等待模型调用...</td></tr>';
                 return;
             }
 
@@ -425,9 +374,8 @@ def register_monitor_routes(app):
                     <td><span class="status-badge status-${model.status}">${model.concurrent}</span></td>
                     <td>${model.tokens_in.toLocaleString()}</td>
                     <td>${model.tokens_out.toLocaleString()}</td>
-                    <td>${formatResponseTime(model)}</td>
-                    <td>${formatResponseTime(model)}</td>
-                    <td>${formatTTFT(model)}</td>
+                    <td><span class="response-time"><span class="median">${model.median_response}ms</span></td>
+                    <td><span class="response-time">${model.avg_ttft || '-'}ms</span></td>
                     <td><span class="status-badge status-${model.status}">${model.status === 'online' ? '在线' : '空闲'}</span></td>
                 `;
                 tbody.appendChild(row);

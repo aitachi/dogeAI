@@ -225,8 +225,11 @@ def get_metrics() -> Dict[str, Any]:
         # 从配置中获取所有可用模型
         from config import MAX_OUTPUT_TOKENS_LIMIT
 
-        # 获取所有配置的模型名称
+        # 获取所有配置的模型名称，包括 GLM 模型
         all_models = list(MAX_OUTPUT_TOKENS_LIMIT.keys())
+
+        # 添加 GLM 模型
+        all_models.extend(["GLM-5.0", "GLM-OPUS", "glm-5", "glm-opus"])
 
         with get_db() as conn:
             cursor = conn.cursor()
@@ -253,12 +256,13 @@ def get_metrics() -> Dict[str, Any]:
 
             # 为所有配置的模型生成列表
             models = []
+            five_minutes_ago = time.time() - 300
+
             for model_name in all_models:
                 # 获取该模型的所有调用记录（用于计算中位数、最大、最小值）
                 cursor.execute("""
                     SELECT
-                        duration_ms, ttft_ms, status,
-                        datetime('now', '-5 minutes') < last_call_time as is_online
+                        duration_ms, ttft_ms, status, start_time
                     FROM model_calls
                     WHERE model_name = ? AND status = 'success'
                 """, (model_name,))
@@ -287,7 +291,7 @@ def get_metrics() -> Dict[str, Any]:
                 max_ttft = max(ttfts) if ttfts else 0
 
                 # 是否在线（最近5分钟有调用）
-                is_online = any(c["is_online"] for c in calls) if calls else False
+                is_online = any(c["start_time"] and c["start_time"] > five_minutes_ago for c in calls) if calls else False
 
                 # 计算当前并发任务数
                 cursor.execute("""

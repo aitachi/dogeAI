@@ -1,42 +1,36 @@
 {
-    "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "api_key": "sk-a9a4edb1b4214016baa11c9be3b9fec4",
+    "api_base": "https://open.bigmodel.cn/api/anthropic",
+    "api_key": "b8e22e2565834b0d9ce54dbb723fab34.NrRrzUS6ArwnsO2D",
     "model_map": {
-        "claude-opus-4-6-20251101": "qwen-coder-plus",
-        "claude-opus-4-6-1m": "qwen-long",
-        "claude-opus-4-6": "qwen-coder-plus",
-        "claude-opus-4-20250514": "qwen-coder-plus",
-        "claude-opus-5-20250514": "qwen-coder-plus",
-        "claude-3-opus-20240229": "qwen-coder-plus",
-        "claude-sonnet-4-5-20250929": "qwen-plus",
-        "claude-sonnet-4-20250514": "qwen-plus",
-        "claude-3-5-sonnet-20241022": "qwen-plus",
-        "claude-3-5-sonnet-20240620": "qwen-plus",
-        "claude-haiku-4-5-20251001": "qwen-turbo",
-        "claude-3-haiku-20240307": "qwen-turbo",
-        "claude-3-5-haiku-20241022": "qwen-turbo",
-        "opus": "qwen-coder-plus",
-        "sonnet": "qwen-plus",
-        "haiku": "qwen-turbo",
-        "claude-opus-4-5-20251101": "qwen-coder-plus",
-        "claude-sonnet-4-6[1m]": "qwen-long"
+        "claude-sonnet-4-6-20250514": "sonnet",
+        "claude-sonnet-4-6-1m": "sonnet[1m]",
+        "claude-opus-4-6-20251101": "opus",
+        "claude-opus-4-6-1m": "opus[1m]",
+        "claude-haiku-4-5-20251001": "haiku"
     },
     "max_output_tokens_limit": {
-        "qwen-long": 30000,
-        "qwen-coder-plus": 8192,
-        "qwen-plus": 8192,
-        "qwen-turbo": 8192,
-        "qwen-max": 8192
+        "sonnet": 200000,
+        "sonnet[1m]": 1000000,
+        "opus": 200000,
+        "opus[1m]": 1000000,
+        "haiku": 200000
     },
-    "default_model": "qwen-plus",
+    "default_model": "sonnet",
     "default_max_tokens": 8192,
-    "default_params": {
-        "temperature": 0.7,
-        "top_p": 0.9
-    },
     "http_port": 3001,
     "https_port": 443,
     "log_level": "INFO",
     "request_timeout": 300,
-    "max_retries": 3
+    "max_retries": 3,
+    "anthropic_env": {
+        "ANTHROPIC_AUTH_TOKEN": "b8e22e2565834b0d9ce54dbb723fab34.NrRrzUS6ArwnsO2D",
+        "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+        "API_TIMEOUT_MS": "3000000",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0"
+    },
+    "enabled_plugins": {
+        "glm-plan-bug@zai-coding-plugins": true,
+        "glm-plan-usage@zai-coding-plugins": true
+    }
 }

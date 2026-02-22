@@ -1,1 +1,38 @@
-proxy_monitor.db
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志
+logs/
+*.log
+
+# 环境配置
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# SSL 证书
+ssl/
+*.pem
+*.crt
+*.key
+
+# Claude
+.claude/settings.local.json

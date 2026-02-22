@@ -19,11 +19,17 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.j
 with open(CONFIG_PATH, "r", encoding="utf-8") as _f:
     CONFIG = json.load(_f)
 
-# API配置
-TARGET_BASE_URL = CONFIG["api_base"].rstrip("/")
-TARGET_API_KEY = CONFIG["api_key"]
+# BigModel API 配置 (AITACHI Cloud 原生协议)
+API_BASE_URL = CONFIG["api_base"].rstrip("/")
+API_KEY = CONFIG["api_key"]
+
+# Anthropic 环境变量配置 (用于 AITACHI Cloud 原生协议)
+ANTHROPIC_ENV = CONFIG.get("anthropic_env", {})
+ENABLED_PLUGINS = CONFIG.get("enabled_plugins", {})
+
+# 模型映射配置
 MODEL_MAP = CONFIG.get("model_map", {})
-DEFAULT_MODEL = CONFIG.get("default_model", "qwen-coder-plus")
+DEFAULT_MODEL = CONFIG.get("default_model", "opus")
 DEFAULT_PARAMS = CONFIG.get("default_params", {})
 DEFAULT_MAX_TOKENS = CONFIG.get("default_max_tokens", 8192)
 MAX_OUTPUT_TOKENS_LIMIT = CONFIG.get("max_output_tokens_limit", {})
@@ -39,9 +45,13 @@ FAKE_EMAIL = "proxy@local.dev"
 FAKE_NAME = "Proxy User"
 
 # 日志输出
-logger.info(f"目标地址  : {TARGET_BASE_URL}")
-logger.info(f"默认模型  : {DEFAULT_MODEL}")
-logger.info(f"模型映射  : {MODEL_MAP}")
+logger.info(f"=" * 60)
+logger.info(f"  Claude Code Proxy v4.1 - AITACHI Cloud")
+logger.info(f"=" * 60)
+logger.info(f"API Base URL : {API_BASE_URL}")
+logger.info(f"默认模型     : {DEFAULT_MODEL}")
+logger.info(f"模型映射     : {MODEL_MAP}")
 logger.info(f"输出token上限: {MAX_OUTPUT_TOKENS_LIMIT}")
-logger.info(f"HTTP  端口 : {HTTP_PORT}")
-logger.info(f"HTTPS 端口 : {HTTPS_PORT}")
+logger.info(f"HTTP  端口   : {HTTP_PORT}")
+logger.info(f"HTTPS 端口   : {HTTPS_PORT}")
+logger.info(f"=" * 60)

@@ -15,7 +15,16 @@
       "Bash(netstat:*)",
       "Bash(yum:*)",
       "Bash(journalctl:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(lsof:*)",
+      "Bash(python3.11:*)",
+      "Bash(python3.7:*)",
+      "Bash(python3.8:*)",
+      "Bash(python3.9:*)",
+      "Bash(python3.10:*)",
+      "Bash(1 sleep 5 systemctl status claude-proxy --no-pager)",
+      "Bash(pkill -9 -f python.*main_http)",
+      "Bash(ls:*)"
     ]
   }
 }

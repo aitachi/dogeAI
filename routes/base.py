@@ -7,7 +7,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from config import logger, MODEL_MAP, TARGET_BASE_URL, TARGET_API_KEY, HTTP_PORT
+from config import logger, MODEL_MAP, API_BASE_URL, API_KEY, HTTP_PORT, DEFAULT_MODEL, MAX_OUTPUT_TOKENS_LIMIT, ANTHROPIC_ENV, ENABLED_PLUGINS
 from utils import make_anthropic_headers
 
 
@@ -16,7 +16,7 @@ def register_base_routes(app):
 
     @app.get("/")
     async def health():
-        return {"status": "ok", "proxy": "claude-code-to-qwen"}
+        return {"status": "ok", "proxy": "aitachi-cloud-v4.1"}
 
     @app.get("/v1/models")
     async def list_models():
@@ -51,24 +51,25 @@ def register_base_routes(app):
     async def test_endpoint():
         from config import DEFAULT_MODEL, MAX_OUTPUT_TOKENS_LIMIT
         test_body = {
+            "env": ANTHROPIC_ENV,
             "model": DEFAULT_MODEL,
             "messages": [{"role": "user", "content": "say hello"}],
             "max_tokens": 50,
-            "stream": False,
+            "enabledPlugins": ENABLED_PLUGINS,
         }
         headers = {
-            "Authorization": f"Bearer {TARGET_API_KEY}",
             "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY}"
         }
-        target_url = f"{TARGET_BASE_URL}/chat/completions"
+        target_url = f"{API_BASE_URL}/v1/messages"
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), verify=False) as client:
                 resp = await client.post(target_url, json=test_body, headers=headers)
                 return {
                     "status": resp.status_code,
                     "upstream_ok": resp.status_code == 200,
                     "proxy_config": {
-                        "target": TARGET_BASE_URL,
+                        "target": API_BASE_URL,
                         "default_model": DEFAULT_MODEL,
                         "max_output_tokens_limit": MAX_OUTPUT_TOKENS_LIMIT,
                     },
@@ -85,7 +86,7 @@ def register_base_routes(app):
             "stream": False,
         }
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), verify=False) as client:
                 resp = await client.post(
                     f"http://127.0.0.1:{HTTP_PORT}/v1/messages",
                     json=test_body,
