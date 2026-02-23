@@ -1,38 +1,44 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
+# Binaries
+go-proxy
+*.exe
+*.exe~
+*.dll
 *.so
-.Python
-*.egg-info/
-dist/
-build/
+*.dylib
+*.test
+*.out
 
-# 数据库
-*.db
-*.sqlite
-*.sqlite3
+# Go workspace file
+go.work
 
-# 日志
-logs/
-*.log
-
-# 环境配置
+# Environment
 .env
 .env.local
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
 
-# SSL 证书
-ssl/
-*.pem
-*.crt
-*.key
+# OS
+.DS_Store
+Thumbs.db
 
-# Claude
-.claude/settings.local.json
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Build
+/bin/
+/dist/
+
+# Temporary
+*.tmp
+*.temp
