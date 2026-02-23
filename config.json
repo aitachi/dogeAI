@@ -1,0 +1,25 @@
+{
+    "api_base": "https://open.bigmodel.cn/api/anthropic",
+    "api_key": "b8e22e2565834b0d9ce54dbb723fab34.NrRrzUS6ArwnsO2D",
+    "model_map": {
+        "claude-sonnet-4-6-20250514": "sonnet",
+        "claude-sonnet-4-6": "sonnet",
+        "claude-sonnet-4-6-1m": "sonnet[1m]",
+        "claude-opus-4-6-20251101": "opus",
+        "claude-opus-4-6": "opus",
+        "claude-opus-4-6-1m": "opus[1m]",
+        "claude-haiku-4-5-20251001": "haiku",
+        "claude-haiku-4-5": "haiku"
+    },
+    "max_output_tokens_limit": {
+        "sonnet": 200000,
+        "sonnet[1m]": 1000000,
+        "opus": 200000,
+        "opus[1m]": 1000000,
+        "haiku": 200000
+    },
+    "default_model": "sonnet",
+    "default_max_tokens": 8192,
+    "http_port": 3001,
+    "log_level": "INFO"
+}
