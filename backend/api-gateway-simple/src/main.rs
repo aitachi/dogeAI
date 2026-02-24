@@ -4,11 +4,12 @@
 
 mod jwt;
 mod provider;
+mod handlers;
 
 use axum::{
     extract::{Request, State, Extension, Path},
-    http::HeaderMap,
-    response::Json,
+    http::{HeaderMap, StatusCode},
+    response::{Json, Response},
     routing::{get, post},
     Router,
     middleware::{self, Next},
@@ -1605,6 +1606,32 @@ async fn check_username_handler(
     }))
 }
 
+/// 检查邮箱或用户名是否可用 (兼容 Python 版本: GET /apply/check-availability/{field}/{value})
+async fn check_availability_handler(
+    State(state): State<AppState>,
+    Path((field, value)): Path<(String, String)>,
+) -> Result<Json<CheckAvailabilityResponse>, AuthError> {
+    if field != "email" && field != "username" {
+        return Ok(Json(CheckAvailabilityResponse {
+            available: false,
+        }));
+    }
+
+    let column = if field == "email" { "email" } else { "username" };
+
+    let exists = sqlx::query_scalar::<_, i64>(
+        &format!("SELECT COUNT(*) FROM users WHERE {} = $1", column)
+    )
+    .bind(&value)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| AuthError::Database(e.to_string()))?;
+
+    Ok(Json(CheckAvailabilityResponse {
+        available: exists == 0,
+    }))
+}
+
 /// 测试认证状态
 async fn auth_test_handler(
     State(state): State<AppState>,
@@ -2299,6 +2326,156 @@ struct CreateRechargeCardsResponse {
     cards: Vec<String>,
 }
 
+// ========== API Keys 管理端点 (兼容 Python main 分支) ==========
+
+/// API Key 列表项
+#[derive(Debug, Serialize)]
+struct ApiKeyListItem {
+    token: String,
+    user: String,
+    daily_limit: i64,
+    expires_at: Option<String>,
+    created_at: String,
+    is_active: bool,
+    used_today: i64,
+}
+
+/// API Keys 列表响应
+#[derive(Debug, Serialize)]
+struct ApiKeysListResponse {
+    keys: Vec<ApiKeyListItem>,
+}
+
+/// 列出所有 API Keys (兼容 Python: GET /admin/keys)
+async fn admin_keys_list_handler(
+    State(state): State<AppState>,
+) -> Result<Json<ApiKeysListResponse>, AuthError> {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+    let rows = sqlx::query_as::<_, (String, String, i64, Option<String>, String, bool, Option<i64>)>(
+        "SELECT
+            uak.api_key,
+            COALESCE(u.username, u.user_id) as user_name,
+            COALESCE(u.balance, 0) as daily_limit,
+            NULL::text as expires_at,
+            TO_CHAR(u.created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS') as created_at,
+            uak.is_active,
+            NULL::bigint as used_today
+        FROM user_api_keys uak
+        LEFT JOIN users u ON u.user_id = uak.user_id
+        ORDER BY u.created_at DESC"
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| AuthError::Database(e.to_string()))?;
+
+    let keys = rows.into_iter().map(|r| ApiKeyListItem {
+        token: r.0,
+        user: r.1,
+        daily_limit: r.2,
+        expires_at: r.3,
+        created_at: r.4,
+        is_active: r.5,
+        used_today: r.6.unwrap_or(0),
+    }).collect();
+
+    Ok(Json(ApiKeysListResponse { keys }))
+}
+
+/// 创建 API Key 请求
+#[derive(Debug, Deserialize)]
+struct CreateApiKeyRequest {
+    user: String,
+    #[serde(default = "default_daily_limit")]
+    limit: i64,
+    #[serde(default = "default_days")]
+    days: i64,
+}
+
+fn default_daily_limit() -> i64 { 1000000 }
+fn default_days() -> i64 { 365 }
+
+/// 创建 API Key 响应
+#[derive(Debug, Serialize)]
+struct CreateApiKeyResponse {
+    message: String,
+    token: String,
+    user: String,
+    daily_limit: i64,
+    expires_at: Option<String>,
+}
+
+/// 创建新的 API Key (兼容 Python: POST /admin/keys/create)
+async fn admin_keys_create_handler(
+    State(state): State<AppState>,
+    Json(req): Json<CreateApiKeyRequest>,
+) -> Result<Json<CreateApiKeyResponse>, AuthError> {
+    // 生成 Anthropic 格式 API Key
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const KEY_LEN: usize = 52;
+    let key_suffix: String = (0..KEY_LEN)
+        .map(|_| {
+            let idx = rand::thread_rng().gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect();
+    let new_token = format!("sk-ant-api03-{}", key_suffix);
+
+    let expires_at = if req.days > 0 {
+        let expiry = chrono::Utc::now() + chrono::Duration::days(req.days);
+        Some(expiry.to_rfc3339())
+    } else {
+        None
+    };
+
+    // 查找或创建用户
+    let user_id = match sqlx::query_scalar::<_, String>(
+        "SELECT user_id FROM users WHERE username = $1 OR user_id = $1"
+    )
+    .bind(&req.user)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| AuthError::Database(e.to_string()))? {
+        Some(uid) => uid,
+        None => {
+            // 创建新用户
+            let new_user_id = format!("user_{}", Uuid::new_v4());
+            sqlx::query(
+                "INSERT INTO users (user_id, username, tier, balance, token_version, active, created_at_old, updated_at_old, created_at, updated_at)
+                 VALUES ($1, $2, 'base', $3, 1, true, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT, NOW(), NOW())"
+            )
+            .bind(&new_user_id)
+            .bind(&req.user)
+            .bind(req.limit)
+            .execute(&state.db)
+            .await
+            .map_err(|e| AuthError::Database(e.to_string()))?;
+            new_user_id
+        }
+    };
+
+    // 插入 API Key
+    sqlx::query(
+        "INSERT INTO user_api_keys (api_key, user_id, is_active)
+         VALUES ($1, $2, true)"
+    )
+    .bind(&new_token)
+    .bind(&user_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| AuthError::Database(e.to_string()))?;
+
+    info!("创建新API密钥: user={}, limit={}", req.user, req.limit);
+
+    Ok(Json(CreateApiKeyResponse {
+        message: "API key created successfully".to_string(),
+        token: new_token,
+        user: req.user,
+        daily_limit: req.limit,
+        expires_at,
+    }))
+}
+
 /// 创建充值卡
 async fn admin_recharge_cards_create_handler(
     State(state): State<AppState>,
@@ -2731,16 +2908,19 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let app = Router::new()
-        // 公开端点
+        // ===== 公开端点 =====
         .route("/health", get(health_handler))
         .route("/v1/models", get(models_handler))
         .route("/v1/providers", get(providers_handler))
         .route("/v1/user/task-sequence", get(user_task_sequence_handler))
-        // 申请API（无需认证）
-        .route("/api/apply", post(apply_handler))
-        .route("/api/apply/check-availability/username/:username", get(check_username_handler))
 
-        // 用户认证 API（兼容 client.html）
+        // ===== 申请API（无需认证） =====
+        .route("/api/apply", post(apply_handler))
+        .route("/apply", post(apply_handler))  // 兼容 Python 版本路径
+        .route("/api/apply/check-availability/username/:username", get(check_username_handler))
+        .route("/apply/check-availability/:field/:value", get(check_availability_handler))  // 兼容 Python 版本路径
+
+        // ===== 用户认证 API（兼容 client.html） =====
         .route("/api/user/login", post(user_login_handler))
         .route("/api/user/register", post(user_register_handler))
         .route("/api/user/balance", get(user_balance_handler))
@@ -2748,28 +2928,31 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/user/change-password", post(user_change_password_handler))
         .route("/api/user/history", get(user_history_handler))
 
-        // 公开 API
+        // ===== 公开 API =====
         .route("/api/health", get(public_health_handler))
         .route("/api/stats", get(public_stats_handler))
 
-        // 充值 API
+        // ===== 充值 API =====
         .route("/api/recharge/redeem", post(recharge_redeem_handler))
         .route("/api/user/recharge", post(user_recharge_handler))
 
-        // 管理后台 API (公开，前端自行验证管理员身份)
+        // ===== 管理后台 API (公开，前端自行验证管理员身份) =====
         .route("/api/admin/stats", get(admin_stats_handler))
         .route("/api/admin/users", get(admin_users_handler))
+        .route("/api/admin/keys", get(admin_keys_list_handler))
+        .route("/admin/keys", get(admin_keys_list_handler))  // 兼容 Python 版本路径
+        .route("/admin/keys/create", post(admin_keys_create_handler))  // 兼容 Python 版本路径
         .route("/api/admin/recharge-cards", get(admin_recharge_cards_list_handler))
         .route("/api/admin/recharge-cards/create", post(admin_recharge_cards_create_handler))
         .route("/api/admin/recharge-cards/:card_id", axum::routing::delete(admin_recharge_cards_delete_handler))
 
-        // 认证端点
+        // ===== 认证端点 =====
         .route("/v1/auth/login", post(login_handler))
         .route("/v1/auth/logout", post(logout_handler))
         .route("/v1/auth/test", get(auth_test_handler))
         .route("/v1/auth/revoke/:user_id", post(revoke_user_handler))
 
-        // API端点 (需要认证)
+        // ===== API端点 (需要认证) =====
         .route("/v1/token/query", post(token_query_handler))
         .route("/v1/chat/completions", post(chat_handler))
 
@@ -2780,7 +2963,53 @@ async fn main() -> anyhow::Result<()> {
         ))
         .with_state(state.clone())
 
-        // Claude Code Anthropic API 端点 (使用单独的认证中间件)
+        // ===== Claude Code 专用端点（无需认证） =====
+        .merge(
+            Router::new()
+                // 平台 API
+                .route("/api/bootstrap", get(handlers::bootstrap_handler))
+                .route("/api/auth", get(handlers::auth_handler))
+                .route("/api/auth/session", get(handlers::auth_session_handler))
+                .route("/api/account", get(handlers::account_handler))
+                .route("/api/me", get(handlers::me_handler))
+                .route("/api/settings", get(handlers::settings_handler))
+                .route("/api/organizations", get(handlers::organizations_handler))
+                .route("/api/organizations/:org_id/api_keys", post(handlers::create_org_api_key_handler))
+                .route("/api/organizations/:org_id/api-keys", post(handlers::create_org_api_key_dash_handler))
+                .route("/api/report", post(handlers::report_handler))
+                .route("/api/telemetry", post(handlers::telemetry_handler))
+                .route("/api/events", post(handlers::events_handler))
+                .route("/api/statsig", post(handlers::statsig_handler))
+
+                // Claude Code 专用
+                .route("/api/claude_code/settings", get(handlers::claude_code_settings_handler))
+                .route("/api/claude_code/policy_limits", get(handlers::claude_code_policy_limits_handler))
+                .route("/api/claude_code/penguin_mode", get(handlers::penguin_mode_handler))
+
+                // OAuth 相关
+                .route("/oauth/authorize", get(handlers::oauth_authorize_handler))
+                .route("/oauth/token", post(handlers::oauth_token_handler))
+                .route("/oauth/code/callback", get(handlers::oauth_code_callback_handler))
+                .route("/generate-code", get(handlers::generate_code_handler))
+
+                // OpenID 发现
+                .route("/.well-known/openid-configuration", get(handlers::openid_configuration_handler))
+                .route("/.well-known/oauth-authorization-server", get(handlers::oauth_authorization_server_handler))
+
+                // UserInfo
+                .route("/userinfo", get(handlers::userinfo_handler))
+
+                // V1 版本的端点
+                .route("/v1/me", get(handlers::v1_me_handler).post(handlers::v1_me_post_handler))
+                .route("/v1/organizations/:org_id/api_keys", post(handlers::v1_create_org_api_key_handler))
+                .route("/v1/dashboard/billing/usage", get(handlers::v1_billing_usage_handler))
+                .route("/v1/usage", get(handlers::v1_usage_handler))
+
+                .layer(CorsLayer::new().allow_origin(tower_http::cors::Any))
+                .with_state(state.clone())
+        )
+
+        // ===== Claude Code Anthropic API 端点 (使用单独的认证中间件) =====
         .merge(
             Router::new()
                 .route("/v1/messages", post(anthropic_messages_handler))
