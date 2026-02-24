@@ -1,259 +1,303 @@
-# DogeAI - Anthropic API 中转代理服务
+# DogeAI - AI API Gateway Platform
 
-一个高性能的 Anthropic API 中转代理服务，支持用户自助申请API密钥、流量统计、并发控制等功能。
+DogeAI 是一个基于 Rust 构建的高性能 AI API 网关平台，提供完整的认证、计费、缓存和限流功能。
 
-## 功能特性
-
-- 🚀 **高性能**: 支持20并发请求处理
-- 🔐 **安全认证**: API密钥认证、每日限额控制
-- 📊 **统计分析**: 详细的调用统计和日志记录
-- 🎯 **用户自助**: 用户可自助申请API密钥
-- 📧 **邮件通知**: 自动发送欢迎邮件
-- 🔄 **模型映射**: 支持新版 Claude 4.5 命名
-- 📦 **易于部署**: 完整的 systemd 服务配置
-
-## 技术栈
-
-- **Python**: 3.6+
-- **Web框架**: FastAPI + Uvicorn
-- **数据库**: SQLite3
-- **HTTP客户端**: httpx
-
-## 目录结构
+## 项目架构
 
 ```
 dogeAI/
-├── src/                    # 源代码
-│   └── anthropic_proxy_v2.py
-├── config/                 # 配置文件
-│   └── .env.example
-├── scripts/                # 工具脚本
-│   ├── init_db.py
-│   ├── api-proxy-admin.sh
-│   └── ...
-├── systemd/                # 系统服务配置
-│   └── anthropic-proxy.service
-├── docs/                   # 文档
-├── requirements.txt        # Python依赖
-└── README.md              # 项目说明
+├── backend/                 # 后端服务
+│   ├── api-gateway/        # 完整版 API 网关
+│   ├── api-gateway-simple/ # 简化版 API 网关
+│   ├── auth-system/        # JWT 认证系统
+│   ├── billing-system/     # 计费网关系统
+│   └── cache/              # 两级缓存实现
+├── frontend/               # Vue 3 前端应用
+├── docs/                   # 项目文档
+└── scripts/                # 部署脚本
 ```
+
+## 核心组件
+
+### 1. API Gateway (完整版)
+
+高性能 API 网关，支持：
+- 请求路由与代理
+- Token 认证与授权
+- 三层限流（用户级、IP级、全局）
+- 实时计费检查
+- 流式响应支持 (SSE)
+
+**技术栈**: Axum 0.7, Tokio, Redis, PostgreSQL, Moka
+
+**端口**: 8080
+
+**文档**: [backend/api-gateway/README.md](backend/api-gateway/README.md)
+
+### 2. API Gateway Simple (简化版)
+
+轻量级 API 网关，适用于快速部署：
+- 核心 API 代理功能
+- JWT 认证
+- Redis + PostgreSQL 存储
+- Claude API 兼容
+
+**技术栈**: Axum 0.7, Tokio, Redis, PostgreSQL
+
+**端口**: 8081
+
+**文档**: [backend/api-gateway-simple/README.md](backend/api-gateway-simple/README.md)
+
+### 3. Auth System
+
+完整的 JWT 认证系统：
+- HS256 签名算法
+- 双层缓存 (Moka + Redis)
+- Token 撤销机制
+- 权限管理
+
+**技术栈**: JWT, Redis, PostgreSQL, Moka, Axum
+
+**使用方式**: 作为 Rust 库集成
+
+**文档**: [backend/auth-system/README.md](backend/auth-system/README.md)
+
+### 4. Billing System
+
+计费网关系统：
+- API Key 管理
+- 实时计费
+- 余额充值
+- 使用统计
+- 限流控制
+
+**技术栈**: Axum 0.7, SQLx, Redis, Tokio-Cron
+
+**端口**: 3000
+
+**文档**: [backend/billing-system/README.md](backend/billing-system/README.md)
+
+### 5. Two-Level Cache
+
+高性能两级缓存实现：
+- L1: 本地 LRU 缓存
+- L2: Redis 分布式缓存
+- 缓存一致性保证
+
+**技术栈**: LRU, Redis, Tokio
+
+**使用方式**: 作为 Rust 库集成
+
+**文档**: [backend/cache/README.md](backend/cache/README.md)
+
+### 6. Frontend
+
+Vue 3 前端应用：
+- 用户仪表板
+- 管理后台
+- API Key 管理
+- 充值功能
+
+**技术栈**: Vue 3, TypeScript, Vite, Pinia, Vue Router
+
+**文档**: [frontend/README.md](frontend/README.md)
 
 ## 快速开始
 
-### 1. 环境要求
+### 环境要求
 
-- Python 3.6 或更高版本
-- Linux 系统（推荐 CentOS 7+/Ubuntu 18.04+）
-- Root 权限（用于创建系统服务和目录）
+- Rust 1.70+
+- Node.js 18+
+- PostgreSQL 13+
+- Redis 6+
 
-### 2. 安装依赖
-
-```bash
-# 创建虚拟环境（推荐）
-python3 -m venv /root/anthropic-proxy-v2
-source /root/anthropic-proxy-v2/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-```
-
-### 3. 配置环境变量
+### 使用 Docker Compose (推荐)
 
 ```bash
-# 复制配置模板
-cp config/.env.example .env
+# 启动所有服务
+docker-compose up -d
 
-# 编辑配置文件，修改以下关键配置：
-# - UPSTREAM_API_KEY: 上游API密钥
-# - ADMIN_KEY: 管理员密钥（请修改为随机强密码）
-# - SMTP_*: 邮件服务器配置
+# 查看日志
+docker-compose logs -f
 ```
 
-### 4. 初始化数据库
+### 手动部署
+
+#### 1. 启动数据库服务
 
 ```bash
-# 创建数据库目录
-mkdir -p /var/lib/anthropic-proxy
-mkdir -p /var/log/anthropic-proxy
+# PostgreSQL
+docker run -d -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres \
+  postgres:14
 
-# 初始化数据库
-python scripts/init_db.py
+# Redis
+docker run -d -p 6379:6379 redis:alpine
 ```
 
-### 5. 启动服务
-
-#### 方式一：直接启动（测试）
+#### 2. 启动后端服务
 
 ```bash
-python src/anthropic_proxy_v2.py
+# API Gateway (完整版)
+cd backend/api-gateway
+cargo build --release
+cargo run --release
+
+# API Gateway Simple
+cd backend/api-gateway-simple
+cargo build --release
+cargo run --release
+
+# Billing System
+cd backend/billing-system
+cargo build --release
+cargo run --release
 ```
 
-#### 方式二：使用 systemd 服务（生产环境）
+#### 3. 启动前端
 
 ```bash
-# 复制服务文件
-cp systemd/anthropic-proxy.service /etc/systemd/system/
-
-# 重载并启动服务
-systemctl daemon-reload
-systemctl enable anthropic-proxy
-systemctl start anthropic-proxy
-
-# 查看服务状态
-systemctl status anthropic-proxy
+cd frontend
+npm install
+npm run dev
 ```
 
-## API 接口
+## API 端点
 
-### 公开接口
+### API Gateway
 
-| 端点 | 方法 | 说明 |
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| `/` | GET | 服务信息 |
-| `/health` | GET | 健康检查 |
-| `/v1/models` | GET | 获取可用模型列表 |
-| `/v1/messages` | POST | 创建消息（API调用） |
-| `/apply` | POST | 申请API密钥 |
-| `/apply/check-availability/{field}/{value}` | GET | 检查邮箱/用户名可用性 |
+| GET | /health | 健康检查 |
+| GET | /v1/models | 模型列表 |
+| POST | /v1/chat/completions | 聊天完成 |
+| POST | /v1/token/query | 查询费用 |
 
-### 管理接口（需要 x-admin-key 头部）
+### Billing System
 
-| 端点 | 方法 | 说明 |
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| `/admin/stats` | GET | 获取统计信息 |
-| `/admin/keys` | GET | 列出所有API密钥 |
-| `/admin/keys/create` | POST | 创建新API密钥 |
-| `/admin/toggle-token` | POST | 切换密钥状态 |
-| `/admin/token-stats` | GET | 获取密钥详细统计 |
-| `/admin/recent-calls` | GET | 获取最近调用记录 |
+| GET | /health | 健康检查 |
+| POST | /auth/register | 用户注册 |
+| POST | /auth/login | 用户登录 |
+| GET | /api/keys | API Key 列表 |
+| POST | /api/keys | 创建 API Key |
+| POST /recharge | 余额充值 |
 
-## 使用示例
+## 计费规则
 
-### 申请 API 密钥
+| 模型 | 输入价格 | 输出价格 |
+|------|---------|---------|
+| Claude Opus | 15 积分/百万 tokens | 75 积分/百万 tokens |
+| Claude Sonnet | 3 积分/百万 tokens | 15 积分/百万 tokens |
+| Claude Haiku | 0.25 积分/百万 tokens | 1.25 积分/百万 tokens |
 
-```bash
-curl -X POST http://your-server:8080/apply \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "username": "john_doe",
-    "full_name": "John Doe",
-    "reason": "Personal AI projects"
-  }'
-```
+## 性能指标
 
-### 调用 API
-
-```bash
-curl -X POST http://your-server:8080/v1/messages \
-  -H "x-api-key: sk-your-api-key" \
-  -H "Content-Type: application/json" \
-  -H "anthropic-version: 2023-06-01" \
-  -d '{
-    "model": "claude-sonnet-4.5",
-    "max_tokens": 1024,
-    "messages": [
-      {"role": "user", "content": "Hello, Claude!"}
-    ]
-  }'
-```
-
-### 查看统计信息
-
-```bash
-curl -X GET http://your-server:8080/admin/stats \
-  -H "x-admin-key: admin-change-this-key"
-```
-
-## 模型映射
-
-服务支持新版 Claude 4.5 命名，会自动映射到上游正确的模型：
-
-| 请求模型 | 实际模型 |
-|---------|---------|
-| `claude-sonnet-4.5` | `claude-3-5-sonnet-20241022` |
-| `claude-opus-4.5` | `claude-3-opus-20240229` |
-| `claude-3.5-sonnet` | `claude-3-5-sonnet-20241022` |
-| `claude-3.5-haiku` | `claude-3-5-haiku-20241022` |
+| 指标 | 目标值 |
+|------|--------|
+| 请求处理时间 | < 10ms |
+| Token 验证 | < 1ms |
+| 并发连接数 | 10000+ |
+| QPS | 300-500 |
+| 缓存命中率 | > 99% |
 
 ## 配置说明
 
-### 并发控制
+每个服务都有对应的配置文件：
 
-- 全局并发限制：20个请求
-- 用户级并发限制：1个请求（每个用户同时只能有一个请求在处理）
+- `backend/api-gateway/config.toml` - API 网关配置
+- `backend/api-gateway-simple/.env` - 简化网关环境变量
+- `backend/billing-system/.env` - 计费系统环境变量
 
-### 限额设置
+## 开发指南
 
-- 默认每日限额：10,000 tokens
-- 可通过管理接口为每个用户设置不同的限额
-- 有效期默认365天
+### 添加新的后端服务
 
-### 日志
+1. 在 `backend/` 目录下创建新项目
+2. 更新主 README.md 添加服务说明
+3. 添加对应的 Docker Compose 配置
 
-- 日志目录：`/var/log/anthropic-proxy/`
-- 日志文件大小限制：100MB
-- 保留10个历史文件
-
-## 维护命令
+### 前端开发
 
 ```bash
-# 查看服务日志
-tail -f /var/log/anthropic-proxy/api-proxy.log
-
-# 查看系统服务日志
-journalctl -u anthropic-proxy -f
-
-# 重启服务
-systemctl restart anthropic-proxy
-
-# 停止服务
-systemctl stop anthropic-proxy
-
-# 数据库备份
-cp /var/lib/anthropic-proxy/stats.db /var/lib/anthropic-proxy/stats.db.backup.$(date +%Y%m%d_%H%M%S)
+cd frontend
+npm run dev          # 开发模式
+npm run build        # 生产构建
+npm run build:check  # 类型检查 + 构建
 ```
 
-## 安全建议
-
-1. **修改默认密钥**: 务必修改 `.env` 中的 `ADMIN_KEY`
-2. **限制CORS**: 生产环境应配置具体的允许域名
-3. **使用HTTPS**: 建议在前端使用 Nginx 配置 SSL
-4. **定期备份**: 定期备份数据库文件
-5. **监控日志**: 关注异常访问和错误日志
-
-## 故障排除
-
-### 服务无法启动
+### 后端开发
 
 ```bash
-# 检查端口占用
-netstat -tlnp | grep 8080
-
-# 检查权限
-ls -la /var/lib/anthropic-proxy/
-ls -la /var/log/anthropic-proxy/
+cd backend/<service>
+cargo build          # 构建
+cargo test           # 测试
+cargo run            # 运行
 ```
 
-### API调用失败
+## 部署
+
+### Docker 部署
+
+每个服务都包含 Dockerfile：
 
 ```bash
-# 查看实时日志
-tail -f /var/log/anthropic-proxy/api-proxy.log
-
-# 检查上游API配置
-curl -H "x-api-key: YOUR_UPSTREAM_KEY" https://open.bigmodel.cn/api/anthropic/v1/messages
+cd backend/<service>
+docker build -t dogeai/<service>:latest .
+docker run -p <port>:<port> dogeai/<service>:latest
 ```
 
-### 数据库问题
+### Systemd 服务
+
+参考各服务 README.md 中的 Systemd 配置示例。
+
+## 监控和日志
+
+- 日志格式: JSON (生产环境)
+- 关键指标: 请求延迟、QPS、错误率、缓存命中率
+
+## 测试
+
+### 后端测试
 
 ```bash
-# 检查数据库文件
-ls -lh /var/lib/anthropic-proxy/stats.db
-
-# 重新初始化
-python scripts/init_db.py
+cd backend/<service>
+cargo test
 ```
+
+### API 测试
+
+```bash
+# 健康检查
+curl http://localhost:8080/health
+
+# 聊天请求
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk_test_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"opus","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+## 故障排查
+
+### 常见问题
+
+1. **数据库连接失败**
+   - 检查 PostgreSQL 是否运行
+   - 验证连接字符串
+
+2. **Redis 连接失败**
+   - 检查 Redis 是否运行
+   - 检查防火墙设置
+
+3. **Token 验证失败**
+   - 确认 Token 格式: `Bearer sk_xxx`
+   - 检查 Token 是否在数据库中
+
+## 版本
+
+当前版本: v2.0.0
 
 ## 许可证
 
@@ -261,9 +305,4 @@ MIT License
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request！
-
-## 联系方式
-
-- 项目主页: https://github.com/aitachi/dogeAI
-- 邮箱: contact@aitachi.cloud
+欢迎提交 Issue 和 Pull Request。

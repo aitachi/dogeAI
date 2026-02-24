@@ -1,0 +1,36 @@
+# API网关配置文件
+
+[server]
+host = "0.0.0.0"
+port = 8080
+timeout_secs = 30
+
+[upstream]
+url = "https://api.anthropic.com"
+timeout_secs = 150
+max_connections = 100
+# 重要：配置上游 Claude API 密钥
+# 格式：sk-ant-api03-...
+api_key = ""  # 请在此处填写你的 Claude API 密钥
+
+[rate_limit]
+user_qps_base = 10      # Base套餐用户QPS限制
+user_qps_pro = 100      # Pro套餐用户QPS限制
+user_qps_max = 200      # Max套餐用户QPS限制
+global_qps = 5000       # 全局QPS限制
+ip_qps = 500            # 单个IP QPS限制
+
+[cache]
+redis_url = "redis://127.0.0.1:6379"
+ttl_secs = 86400        # Redis缓存TTL（1天）
+local_ttl_secs = 3600   # 本地缓存TTL（1小时）
+max_connections = 50
+
+[database]
+url = "postgresql://postgres:password@localhost/api_gateway"
+max_connections = 30
+idle_connections = 10
+
+[log]
+level = "info"          # trace, debug, info, warn, error
+format = "json"         # json 或 pretty

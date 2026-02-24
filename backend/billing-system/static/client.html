@@ -1,0 +1,2170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aitachi - 客户端门户</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .client-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* 顶部导航 */
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .navbar-brand h1 {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .navbar-user {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .user-info {
+            text-align: right;
+        }
+
+        .user-name {
+            font-weight: 600;
+        }
+
+        .user-tier {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .balance-display {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        /* 卡片 */
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* 统计卡片网格 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 12px;
+            font-size: 24px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.5);
+            padding: 6px;
+            border-radius: 12px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #888;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: white;
+            color: #667eea;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 表单 */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid #667eea;
+            color: #667eea;
+        }
+
+        .btn-outline:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        /* 表格 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        th {
+            font-weight: 600;
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        /* 徽章 */
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-primary { background: #667eea; color: white; }
+        .badge-success { background: #00ff88; color: white; }
+        .badge-warning { background: #ffc107; color: white; }
+        .badge-info { background: #00d2ff; color: white; }
+
+        /* 套餐卡片 */
+        .package-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .package-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .package-card:hover {
+            border-color: #667eea;
+            transform: translateY(-4px);
+        }
+
+        .package-name {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .package-points {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .package-unit {
+            font-size: 14px;
+            color: #888;
+        }
+
+        /* API Key卡片 */
+        .api-key-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .api-key-display {
+            font-family: 'Monaco', monospace;
+            background: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        /* 消息提示 */
+        .alert {
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .alert.show {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .alert-success {
+            background: rgba(0, 255, 136, 0.1);
+            color: #00a86b;
+        }
+
+        .alert-error {
+            background: rgba(255, 68, 68, 0.1);
+            color: #cc0000;
+        }
+
+        /* 登录/注册界面 */
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-card {
+            background: white;
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .auth-logo {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .auth-logo h1 {
+            font-size: 28px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .auth-tabs {
+            display: flex;
+            margin-bottom: 24px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .auth-tab {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-weight: 500;
+            color: #888;
+            border-bottom: 2px solid transparent;
+        }
+
+        .auth-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .navbar {
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .package-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 表格容器 */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        .loading {
+            text-align: center;
+            color: #888;
+            padding: 40px;
+        }
+
+        /* 充值码显示 */
+        .recharge-code-display {
+            background: #f8f9fa;
+            border: 2px dashed #667eea;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 16px;
+        }
+
+        .recharge-code {
+            font-family: 'Monaco', monospace;
+            font-size: 18px;
+            font-weight: 700;
+            color: #667eea;
+            letter-spacing: 2px;
+        }
+
+        /* 使用历史 */
+        .usage-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .usage-time {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .usage-cost {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        /* 计费详情 */
+        .billing-detail {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-top: 8px;
+            font-size: 12px;
+        }
+
+        .detail-item {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
+        .detail-label {
+            color: #888;
+            margin-bottom: 2px;
+        }
+
+        .detail-value {
+            font-weight: 600;
+        }
+
+        /* 安装指南样式 */
+        .install-section {
+            display: none;
+        }
+
+        .install-section.active {
+            display: block;
+        }
+
+        .code-block {
+            font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .api-url-code {
+            font-family: 'Monaco', 'Consolas', 'Courier New', monospace;
+        }
+
+        details summary {
+            cursor: pointer;
+        }
+
+        details[open] summary {
+            margin-bottom: 0;
+        }
+
+        .os-tabs button {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 登录/注册界面 -->
+    <div id="auth-view" class="auth-container">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <h1>⚡ Aitachi</h1>
+                <p style="color: #888; margin-top: 8px;">AI 模型计费平台</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchAuthTab('login', this)">登录</button>
+                <button class="auth-tab" onclick="switchAuthTab('register', this)">注册</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <form id="login-form" onsubmit="handlePasswordLogin(event)">
+                <div class="form-group">
+                    <label>用户名或邮箱</label>
+                    <input type="text" id="login-account" placeholder="输入用户名或邮箱" required>
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="login-password" placeholder="输入密码" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    登录
+                </button>
+                <p style="text-align: center; color: #888; font-size: 14px; margin-top: 16px;">
+                    忘记密码？请<a href="/apply.html" style="color: #667eea;">重新注册</a>
+                </p>
+            </form>
+
+            <!-- 注册表单 -->
+            <form id="register-form" class="hidden" onsubmit="handleRegister(event)">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="reg-username" placeholder="3-32个字符" required>
+                </div>
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="reg-email" placeholder="用于找回密码" required>
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="reg-password" placeholder="至少6个字符" required>
+                </div>
+                <div class="form-group">
+                    <label>确认密码</label>
+                    <input type="password" id="reg-password-confirm" placeholder="再次输入密码" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    注册
+                </button>
+            </form>
+
+            <div id="auth-alert" class="alert alert-error" style="display: none; margin-top: 16px;"></div>
+        </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div id="main-view" class="client-container hidden">
+        <!-- 导航栏 -->
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <span style="font-size: 28px;">⚡</span>
+                <div>
+                    <h1>Aitachi</h1>
+                    <p style="font-size: 12px; color: #888;">AI 模型计费平台</p>
+                </div>
+            </div>
+            <div class="navbar-user">
+                <div class="user-info">
+                    <div class="user-name" id="user-name">用户</div>
+                    <div class="user-tier" id="user-tier">Standard</div>
+                </div>
+                <div class="balance-display">
+                    <span id="balance-amount">0</span> 积分
+                </div>
+                <button class="btn btn-outline" onclick="logout()">退出</button>
+            </div>
+        </nav>
+
+        <!-- 统计卡片 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">💰</div>
+                <div class="stat-value" id="stat-balance">0</div>
+                <div class="stat-label">当前余额</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-value" id="stat-requests">0</div>
+                <div class="stat-label">总请求次数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔥</div>
+                <div class="stat-value" id="stat-tokens">0</div>
+                <div class="stat-label">总Token数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-value" id="stat-tier">Base</div>
+                <div class="stat-label">账户等级</div>
+            </div>
+        </div>
+
+        <!-- 标签页内容 -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('overview', this)">概览</button>
+            <button class="tab" onclick="switchTab('recharge', this)">充值</button>
+            <button class="tab" onclick="switchTab('history', this)">使用记录</button>
+            <button class="tab" onclick="switchTab('settings', this)">设置</button>
+            <button class="tab" onclick="switchTab('install', this)">配置与安装</button>
+        </div>
+
+        <!-- 概览页面 -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">可用模型</h3>
+                </div>
+                <div class="model-selector" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px;">
+                    <div style="background: #f8f9fa; border: 2px solid transparent; border-radius: 12px; padding: 16px; text-align: center;">
+                        <div style="font-weight: 600;">Claude Opus</div>
+                        <div style="font-size: 12px; color: #888;">高级模型 · 7分/次</div>
+                    </div>
+                    <div style="background: #f8f9fa; border: 2px solid transparent; border-radius: 12px; padding: 16px; text-align: center;">
+                        <div style="font-weight: 600;">Claude Sonnet</div>
+                        <div style="font-size: 12px; color: #888;">平衡模型 · 4分/次</div>
+                    </div>
+                    <div style="background: #f8f9fa; border: 2px solid transparent; border-radius: 12px; padding: 16px; text-align: center;">
+                        <div style="font-weight: 600;">Claude Haiku</div>
+                        <div style="font-size: 12px; color: #888;">快速模型 · 1分/次</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">快速充值</h3>
+                </div>
+                <div class="package-grid">
+                    <div class="package-card" onclick="quickRecharge(500)">
+                        <div class="package-name">小加油包</div>
+                        <div class="package-points">500</div>
+                        <div class="package-unit">积分</div>
+                        <div style="margin-top: 12px; font-size: 12px; color: #888;">适合试用</div>
+                    </div>
+                    <div class="package-card" onclick="quickRecharge(1000)">
+                        <div class="package-name">中加油包</div>
+                        <div class="package-points">1000</div>
+                        <div class="package-unit">积分</div>
+                        <div style="margin-top: 12px; font-size: 12px; color: #888;">最受欢迎</div>
+                    </div>
+                    <div class="package-card" onclick="quickRecharge(2000)">
+                        <div class="package-name">大加油包</div>
+                        <div class="package-points">2000</div>
+                        <div class="package-unit">积分</div>
+                        <div style="margin-top: 12px; font-size: 12px; color: #888;">超值优惠</div>
+                    </div>
+                    <div class="package-card" onclick="quickRecharge(10000)">
+                        <div class="package-name">超大加油包</div>
+                        <div class="package-points">10000</div>
+                        <div class="package-unit">积分</div>
+                        <div style="margin-top: 12px; font-size: 12px; color: #888;">企业首选</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 充值页面 -->
+        <div id="tab-recharge" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">充值码兑换</h3>
+                </div>
+                <div id="redeem-alert" class="alert"></div>
+                <div class="form-group">
+                    <label>输入充值码</label>
+                    <input type="text" id="redeem-code" placeholder="例如: S5ABCD1234" style="text-transform: uppercase;">
+                </div>
+                <button class="btn btn-primary" onclick="redeemCode()">兑换充值码</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">充值记录</h3>
+                </div>
+                <div id="recharge-history-list">
+                    <p style="text-align: center; color: #888;">暂无充值记录</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用记录页面 -->
+        <div id="tab-history" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">计费记录</h3>
+                    <button class="btn btn-outline" onclick="loadHistory()">刷新</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>模型</th>
+                                <th>输入Token</th>
+                                <th>输出Token</th>
+                                <th>总Token</th>
+                                <th>消耗积分</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body">
+                            <tr><td colspan="6" style="text-align: center; color: #888;">暂无记录</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 设置页面 -->
+        <div id="tab-settings" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">账户信息</h3>
+                </div>
+                <div class="form-group">
+                    <label>用户ID</label>
+                    <input type="text" id="settings-user-id" readonly>
+                </div>
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="settings-username">
+                </div>
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="settings-email" readonly>
+                </div>
+                <div class="form-group">
+                    <label>账户等级</label>
+                    <input type="text" id="settings-tier" readonly>
+                </div>
+                <div class="form-group">
+                    <label>并发限制</label>
+                    <input type="text" id="settings-concurrent" readonly>
+                </div>
+                <button class="btn btn-primary" onclick="updateProfile()">保存资料</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">修改密码</h3>
+                </div>
+                <div id="password-alert" class="alert"></div>
+                <div class="form-group">
+                    <label>当前密码</label>
+                    <input type="password" id="old-password">
+                </div>
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" id="new-password">
+                </div>
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" id="confirm-password">
+                </div>
+                <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">API Key</h3>
+                </div>
+                <div class="api-key-card">
+                    <div>
+                        <div style="font-weight: 600; margin-bottom: 4px;">您的 API Key</div>
+                        <div class="api-key-display" id="settings-api-key">••••••••••••</div>
+                    </div>
+                    <button class="btn btn-outline" onclick="copyApiKey()">复制</button>
+                </div>
+                <p style="margin-top: 16px; color: #888; font-size: 14px;">
+                    在 API 请求中使用此 Key 进行身份认证：
+                </p>
+                <pre style="background: #f8f9fa; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto;"><code>Authorization: Bearer YOUR_API_KEY</code></pre>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">计费规则</h3>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>模型</th>
+                            <th>基础积分</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge badge-primary">Claude Opus</span></td>
+                            <td>7 分/次</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-info">Claude Sonnet</span></td>
+                            <td>4 分/次</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-success">Claude Haiku</span></td>
+                            <td>1 分/次</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 配置与安装页面 -->
+        <div id="tab-install" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">📋 安装与配置指南</h3>
+                        <p style="color: #888; font-size: 14px;">您的专属配置信息，请妥善保管</p>
+                    </div>
+                </div>
+
+                <!-- API密钥卡片 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🔑 您的API密钥</h3>
+                        <button class="btn btn-outline" onclick="copyApiKey()">复制</button>
+                    </div>
+                    <div class="api-key-card">
+                        <div>
+                            <div style="font-weight: 600; margin-bottom: 4px;">API Key</div>
+                            <div class="api-key-display" id="install-api-key">加载中...</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 16px; color: #888; font-size: 14px;">
+                        ⚠️ 请勿泄露您的API密钥，它代表您的账户身份
+                    </p>
+                </div>
+
+                <!-- 服务器地址 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">🌐 API服务器地址</h3>
+                        <button class="btn btn-outline" onclick="copyServerUrl()">复制</button>
+                    </div>
+                    <div class="api-key-card">
+                        <div>
+                            <div style="font-weight: 600; margin-bottom: 4px;">API Base URL</div>
+                            <pre class="api-url-code" style="background: #f8f9fa; padding: 12px; border-radius: 6px; font-size: 14px; overflow-x: auto; margin: 0;">https://115.190.62.87/v1/anthropic/proxy</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 快速配置 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">⚡ 快速配置命令</h3>
+                    </div>
+
+                    <!-- 系统选择 -->
+                    <div style="margin-bottom: 20px;">
+                        <label>选择您的操作系统：</label>
+                        <select id="os-select" onchange="updateInstallGuide()" style="margin-top: 8px;">
+                            <option value="windows">Windows</option>
+                            <option value="macos">macOS</option>
+                            <option value="linux">Linux</option>
+                        </select>
+                    </div>
+
+                    <div id="install-guide">
+                        <h4 style="margin: 20px 0 10px 0;">第一步：安装 Git 和 NPM</h4>
+
+                        <!-- Windows -->
+                        <div id="install-windows" class="install-section">
+                            <p style="margin-bottom: 12px; color: #666;"><strong>Windows 安装步骤：</strong></p>
+
+                            <p style="margin-bottom: 8px;">1. 安装 Git：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 方法1：使用 winget（推荐，Windows 11/10 1709+）
+winget install Git.Git --accept-source-agreements --accept-package-agreements
+
+# 方法2：下载安装包
+# 访问 https://git-scm.com/download/win 下载并安装
+# 安装时选择 "Git from the command line and also from 3rd-party software"
+
+# 验证安装（需要重新打开终端）
+git --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">2. 安装 Node.js (包含 npm)：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 方法1：使用 winget（推荐）
+winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+
+# 方法2：下载安装包
+# 访问 https://nodejs.org/ 下载 LTS 版本并安装
+
+# 验证安装（需要重新打开终端）
+node --version
+npm --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">3. 安装 Claude Code：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 全局安装 Claude Code
+npm install -g @anthropic-ai/claude-code
+
+# 如果提示权限错误，以管理员身份运行 PowerShell 或 CMD
+# 或者在 PowerShell 中运行：
+# Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# 验证安装
+claude --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">4. 配置环境变量：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 在 PowerShell 中设置（临时，当前会话有效）
+$env:ANTHROPIC_API_KEY="你的API密钥"
+$env:ANTHROPIC_BASE_URL="https://115.190.62.87/v1/anthropic/proxy"
+
+# 永久设置（添加到系统环境变量）
+# 1. 右键"此电脑" -> 属性 -> 高级系统设置 -> 环境变量
+# 2. 在"用户变量"中新建：
+#    变量名: ANTHROPIC_API_KEY
+#    变量值: 你的API密钥
+#    变量名: ANTHROPIC_BASE_URL
+#    变量值: https://115.190.62.87/v1/anthropic/proxy</pre>
+
+                            <p style="margin: 16px 0 8px 0;">5. 创建配置文件：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 配置文件位置
+# %USERPROFILE%\.claude\settings.json
+
+# 在 PowerShell 中创建目录和文件
+mkdir -p $env:USERPROFILE\.claude
+notepad $env:USERPROFILE\.claude\settings.json
+
+# 粘贴以下内容并保存</pre>
+                        </div>
+
+                        <!-- macOS -->
+                        <div id="install-macos" class="install-section" style="display: none;">
+                            <p style="margin-bottom: 12px; color: #666;"><strong>macOS 安装步骤：</strong></p>
+
+                            <p style="margin-bottom: 8px;">1. 安装 Homebrew（如果未安装）：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;">/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 安装完成后，根据提示添加 Homebrew 到 PATH：
+# (echo; echo 'eval "$(/opt/homebrew/bin/brew shellenv)"') >> /Users/$USER/.zprofile
+# eval "$(/opt/homebrew/bin/brew shellenv)"</pre>
+
+                            <p style="margin: 16px 0 8px 0;">2. 安装 Git 和 Node.js：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;">brew install git node
+
+# 验证安装
+git --version
+node --version
+npm --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">3. 安装 Claude Code：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 全局安装
+npm install -g @anthropic-ai/claude-code
+
+# 如果提示权限错误，配置 npm 全局路径
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+source ~/.zshrc
+
+# 重新安装
+npm install -g @anthropic-ai/claude-code
+
+# 验证安装
+claude --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">4. 配置环境变量：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 添加到 ~/.zshrc (macOS Catalina 及以后) 或 ~/.bash_profile
+echo 'export ANTHROPIC_API_KEY="你的API密钥"' >> ~/.zshrc
+echo 'export ANTHROPIC_BASE_URL="https://115.190.62.87/v1/anthropic/proxy"' >> ~/.zshrc
+source ~/.zshrc</pre>
+                        </div>
+
+                        <!-- Linux -->
+                        <div id="install-linux" class="install-section" style="display: none;">
+                            <p style="margin-bottom: 12px; color: #666;"><strong>Linux 安装步骤：</strong></p>
+
+                            <p style="margin-bottom: 8px;">Ubuntu/Debian：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 更新包列表
+sudo apt update
+
+# 安装基础构建工具（某些 npm 包需要编译）
+sudo apt install -y build-essential python3 git curl
+
+# 安装 Node.js 20.x LTS (使用 NodeSource 仓库)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 验证安装
+git --version
+node --version
+npm --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">CentOS/RHEL/Rocky/AlmaLinux：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 安装基础构建工具
+sudo yum groupinstall -y "Development Tools"
+sudo yum install -y python3 git curl
+
+# 安装 Node.js 20.x LTS
+curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+sudo yum install -y nodejs
+
+# 验证安装
+git --version
+node --version
+npm --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">Fedora：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 安装基础工具
+sudo dnf install -y gcc-c++ make python3 git curl
+
+# 安装 Node.js
+curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+sudo dnf install -y nodejs
+
+# 验证安装
+git --version
+node --version
+npm --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">Arch Linux：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 安装 Node.js 和 Git
+sudo pacman -S nodejs git python python3 make gcc
+
+# 验证安装
+git --version
+node --version
+npm --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">安装 Claude Code：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 方法1：使用 sudo 安装（推荐）
+sudo npm install -g @anthropic-ai/claude-code
+
+# 方法2：配置用户级 npm 安装（无 sudo 权限时）
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+npm install -g @anthropic-ai/claude-code
+
+# 验证安装
+claude --version</pre>
+
+                            <p style="margin: 16px 0 8px 0;">配置环境变量：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;"># 添加到 ~/.bashrc 或 ~/.zshrc
+echo 'export ANTHROPIC_API_KEY="你的API密钥"' >> ~/.bashrc
+echo 'export ANTHROPIC_BASE_URL="https://115.190.62.87/v1/anthropic/proxy"' >> ~/.bashrc
+source ~/.bashrc</pre>
+                        </div>
+
+                        <h4 style="margin: 30px 0 10px 0;">第二步：配置 Claude Code</h4>
+                        <p style="margin-bottom: 12px; color: #666;">运行以下命令启动配置向导（已预填您的API密钥）：</p>
+                        <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;" id="claude-config-code"># 配置 Claude Code
+claude configure
+
+# 或手动设置环境变量
+export ANTHROPIC_API_KEY="你的API密钥"
+export ANTHROPIC_BASE_URL="https://115.190.62.87/v1/anthropic/proxy"</pre>
+
+                        <button class="btn btn-primary" onclick="copyCommand('claude-config-code')" style="margin-top: 12px;">
+                            📋 复制配置命令
+                        </button>
+
+                        <h4 style="margin: 30px 0 10px 0;">第三步：创建配置文件（可选）</h4>
+                        <p style="margin-bottom: 12px; color: #666;">如果需要自定义配置，创建 <code>settings.json</code> 文件：</p>
+                        <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto;" id="settings-json-code">{
+  "apiBaseUrl": "https://115.190.62.87/v1/anthropic/proxy"
+}</pre>
+
+                        <p style="margin: 16px 0 8px 0;">配置文件位置：</p>
+                        <ul style="margin-left: 20px; color: #666; line-height: 1.8;">
+                            <li><strong>Windows:</strong> <code>%USERPROFILE%\.claude\settings.json</code></li>
+                            <li><strong>macOS:</strong> <code>~/.claude/settings.json</code></li>
+                            <li><strong>Linux:</strong> <code>~/.claude/settings.json</code></li>
+                        </ul>
+
+                        <p style="margin: 16px 0 8px 0; color: #f59e0b;">⚠️ 注意：大多数情况下，只需设置环境变量即可，不需要创建 settings.json 文件。</p>
+
+                        <button class="btn btn-primary" onclick="copySettingsJson()" style="margin-top: 12px;">
+                            📋 复制 settings.json
+                        </button>
+
+                        <h4 style="margin: 30px 0 10px 0;">第五步：一键检测脚本</h4>
+                        <p style="margin-bottom: 12px; color: #666;">下载并运行检测脚本，自动验证环境配置：</p>
+
+                        <div class="os-tabs" style="display: flex; gap: 8px; margin-bottom: 16px;">
+                            <button class="btn btn-outline" onclick="showDetectScript('windows')">Windows</button>
+                            <button class="btn btn-outline" onclick="showDetectScript('macos')">macOS</button>
+                            <button class="btn btn-outline" onclick="showDetectScript('linux')">Linux</button>
+                        </div>
+
+                        <div id="detect-script-preview" style="margin-top: 16px;">
+                            <p style="margin-bottom: 8px; color: #666;">一键检测脚本：</p>
+                            <pre class="code-block" style="background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; max-height: 300px;" id="detect-script-code">curl -fsSL https://115.190.62.87/detect.sh | bash</pre>
+                            <button class="btn btn-primary" onclick="copyDetectScript()" style="margin-top: 8px;">📋 复制检测脚本</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 常见问题 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">❓ 常见问题</h3>
+                    </div>
+
+                    <div style="space-y: 12px;">
+                        <details style="margin-bottom: 16px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: 如何验证安装成功？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>在命令行输入以下命令验证：</p>
+                                <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px;">claude --version</pre>
+                                <p>如果显示版本号，说明安装成功。</p>
+                            </div>
+                        </details>
+
+                        <details style="margin-bottom: 16px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: 如何查看我的API使用情况？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>登录后在"使用记录"标签页可以查看详细的使用记录和计费情况。</p>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: 如何充值积分？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>在"充值"标签页使用充值码兑换积分。如需充值码请联系管理员。</p>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: 连接超时怎么办？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>1. 检查网络连接：确保可以访问外网</p>
+                                <p>2. 确认API服务器地址正确：<code>https://115.190.62.87/v1/anthropic/proxy</code></p>
+                                <p>3. 检查API密钥是否正确</p>
+                                <p>4. 尝试运行检测脚本排查问题</p>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: npm install 提示权限错误怎么办？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p><strong>Linux/macOS 解决方案：</strong></p>
+                                <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 12px;"># 配置用户级 npm 目录
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc</pre>
+                                <p><strong>Windows 解决方案：</strong></p>
+                                <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 12px;"># 以管理员身份运行 PowerShell 或 CMD</pre>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: Node.js 版本过低怎么办？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>Claude Code 需要 Node.js 18 或更高版本。</p>
+                                <p><strong>升级 Node.js：</strong></p>
+                                <ul style="margin-left: 20px;">
+                                    <li>访问 <a href="https://nodejs.org/" target="_blank">nodejs.org</a> 下载最新 LTS 版本</li>
+                                    <li>或使用 nvm 安装：<code>nvm install --lts</code></li>
+                                </ul>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: Windows 找不到 curl 命令怎么办？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>Windows 10 1803+ 已内置 curl。如果不可用：</p>
+                                <ol style="margin-left: 20px;">
+                                    <li>打开 PowerShell 或 CMD</li>
+                                    <li>使用 PowerShell 的 Invoke-WebRequest 替代</li>
+                                    <li>或从 <a href="https://curl.se/windows/" target="_blank">curl.se</a> 下载 Windows 版本</li>
+                                </ol>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: 如何卸载 Claude Code？</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>运行以下命令卸载：</p>
+                                <pre style="background: #f8f9fa; padding: 8px; border-radius: 4px;">npm uninstall -g @anthropic-ai/claude-code</pre>
+                            </div>
+                        </details>
+
+                        <details style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                            <summary style="padding: 12px; cursor: pointer; background: #f8f9fa; font-weight: 500;">Q: 命令行提示 "command not found: claude"</summary>
+                            <div style="padding: 12px; border-top: 1px solid #e0e0e0;">
+                                <p>可能原因：</p>
+                                <ol style="margin-left: 20px;">
+                                    <li>Claude Code 未安装 - 运行 <code>npm install -g @anthropic-ai/claude-code</code></li>
+                                    <li>npm 全局路径未添加到 PATH - 需要重启终端或手动添加</li>
+                                    <li>Windows 可能需要以管理员身份运行</li>
+                                </ol>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let currentUser = null;
+        let apiKey = '';
+
+        // 从 localStorage 加载 API Key
+        function loadStoredApiKey() {
+            return localStorage.getItem('aitachi_api_key') || '';
+        }
+
+        function saveApiKey(key) {
+            localStorage.setItem('aitachi_api_key', key);
+        }
+
+        function clearStoredApiKey() {
+            localStorage.removeItem('aitachi_api_key');
+        }
+
+        // 切换登录/注册标签
+        function switchAuthTab(tab, element) {
+            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+
+            // If called with click event, use event.target
+            // Otherwise find the tab by index
+            if (element && element.classList) {
+                element.classList.add('active');
+            } else {
+                const tabs = document.querySelectorAll('.auth-tab');
+                if (tab === 'login' && tabs[0]) {
+                    tabs[0].classList.add('active');
+                } else if (tab === 'register' && tabs[1]) {
+                    tabs[1].classList.add('active');
+                }
+            }
+
+            if (tab === 'login') {
+                document.getElementById('login-form').classList.remove('hidden');
+                document.getElementById('register-form').classList.add('hidden');
+            } else {
+                document.getElementById('login-form').classList.add('hidden');
+                document.getElementById('register-form').classList.remove('hidden');
+            }
+            hideAuthAlert();
+        }
+
+        // 密码登录
+        async function handlePasswordLogin(e) {
+            e.preventDefault();
+            const account = document.getElementById('login-account').value.trim();
+            const password = document.getElementById('login-password').value;
+
+            if (!account || !password) {
+                showAuthAlert('请输入用户名和密码', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/user/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    apiKey = data.data.api_key;
+                    saveApiKey(apiKey);
+                    currentUser = data.data;
+                    showMainView(data.data);
+                } else {
+                    let errorMsg = data.message || '登录失败，请检查用户名和密码';
+                    if (errorMsg.startsWith('Invalid input: ')) {
+                        errorMsg = errorMsg.replace('Invalid input: ', '');
+                    }
+                    showAuthAlert(errorMsg, 'error');
+                }
+            } catch (e) {
+                showAuthAlert('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // 用户注册
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('reg-username').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const confirmPassword = document.getElementById('reg-password-confirm').value;
+
+            if (username.length < 3 || username.length > 32) {
+                showAuthAlert('用户名长度必须为3-32个字符', 'error');
+                return;
+            }
+
+            if (password.length < 6) {
+                showAuthAlert('密码长度至少为6个字符', 'error');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                showAuthAlert('两次输入的密码不一致', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/user/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAuthAlert('注册成功！请登录', 'success');
+                    setTimeout(() => {
+                        switchAuthTab('login');
+                        document.getElementById('login-account').value = username;
+                        document.getElementById('login-password').focus();
+                    }, 1000);
+                } else {
+                    // Extract the error message - remove "Invalid input: " prefix if present
+                    let errorMsg = data.message || '注册失败';
+                    if (errorMsg.startsWith('Invalid input: ')) {
+                        errorMsg = errorMsg.replace('Invalid input: ', '');
+                    }
+                    showAuthAlert(errorMsg, 'error');
+                }
+            } catch (e) {
+                showAuthAlert('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        function showAuthAlert(message, type) {
+            const alertDiv = document.getElementById('auth-alert');
+            alertDiv.className = `alert alert-${type} show`;
+            alertDiv.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span><span>${message}</span>`;
+            setTimeout(() => {
+                alertDiv.classList.remove('show');
+            }, 5000);
+        }
+
+        function hideAuthAlert() {
+            document.getElementById('auth-alert').classList.remove('show');
+        }
+
+        function showMainView(userData) {
+            document.getElementById('auth-view').classList.add('hidden');
+            document.getElementById('main-view').classList.remove('hidden');
+
+            document.getElementById('user-name').textContent = userData.username || `用户 #${userData.user_id}`;
+            document.getElementById('user-tier').textContent = userData.tier;
+            document.getElementById('balance-amount').textContent = userData.balance;
+            document.getElementById('stat-balance').textContent = userData.balance;
+            document.getElementById('stat-tier').textContent = userData.tier;
+
+            // 设置页面信息
+            document.getElementById('settings-api-key').textContent = apiKey;
+            document.getElementById('settings-user-id').value = userData.user_id;
+            document.getElementById('settings-username').value = userData.username || '';
+            document.getElementById('settings-email').value = userData.email || '';
+            document.getElementById('settings-tier').value = userData.tier;
+            document.getElementById('settings-concurrent').value = '100';
+
+            // 更新配置与安装页面的内容
+            updateInstallContent();
+
+            loadHistory();
+            refreshBalance();
+        }
+
+        function logout() {
+            clearStoredApiKey();
+            apiKey = '';
+            currentUser = null;
+            document.getElementById('auth-view').classList.remove('hidden');
+            document.getElementById('main-view').classList.add('hidden');
+            document.getElementById('login-account').value = '';
+            document.getElementById('login-password').value = '';
+        }
+
+        // 切换标签页
+        function switchTab(tabName, element) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            // Find and activate the clicked tab
+            if (element && element.classList) {
+                element.classList.add('active');
+            } else {
+                // Find tab by data attribute or index
+                const tabs = document.querySelectorAll('.tab');
+                const tabMap = { 'overview': 0, 'recharge': 1, 'history': 2, 'settings': 3, 'install': 4 };
+                const index = tabMap[tabName];
+                if (tabs[index]) {
+                    tabs[index].classList.add('active');
+                }
+            }
+
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            if (tabName === 'history') {
+                loadHistory();
+            }
+
+            if (tabName === 'install') {
+                updateInstallContent();
+            }
+        }
+
+        // 刷新余额
+        async function refreshBalance() {
+            try {
+                const response = await fetch('/api/user/balance', {
+                    headers: { 'Authorization': `Bearer ${apiKey}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('balance-amount').textContent = data.balance;
+                    document.getElementById('stat-balance').textContent = data.balance;
+                }
+            } catch (e) {
+                console.error('刷新余额失败:', e);
+            }
+        }
+
+        // 充值码兑换
+        async function redeemCode() {
+            const code = document.getElementById('redeem-code').value.trim().toUpperCase();
+
+            if (!code) {
+                showAlert('redeem-alert', '请输入充值码', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/recharge/redeem', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ code })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert('redeem-alert', `充值成功！新余额: ${data.new_balance} 积分`, 'success');
+                    document.getElementById('redeem-code').value = '';
+                    refreshBalance();
+                } else {
+                    showAlert('redeem-alert', data.message || '充值失败', 'error');
+                }
+            } catch (e) {
+                showAlert('redeem-alert', '请求失败: ' + e.message, 'error');
+            }
+        }
+
+        function quickRecharge(points) {
+            showAlert('redeem-alert', `请输入充值码完成 ${points} 积分充值`, 'info');
+        }
+
+        // 加载使用记录
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/user/history', {
+                    headers: { 'Authorization': `Bearer ${apiKey}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    renderHistoryTable(data.records || []);
+
+                    // 更新统计数据
+                    const totalRequests = data.records ? data.records.length : 0;
+                    const totalTokens = data.records ? data.records.reduce((sum, r) => sum + (r.total_tokens || 0), 0) : 0;
+                    document.getElementById('stat-requests').textContent = totalRequests;
+                    document.getElementById('stat-tokens').textContent = totalTokens;
+                }
+            } catch (e) {
+                console.error('加载历史失败:', e);
+            }
+        }
+
+        function renderHistoryTable(records) {
+            const tbody = document.getElementById('history-table-body');
+
+            if (records.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #888;">暂无记录</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = records.map(r => `
+                <tr>
+                    <td>${new Date(r.created_at).toLocaleString()}</td>
+                    <td><span class="badge badge-info">${r.model}</span></td>
+                    <td>${r.input_tokens || 0}</td>
+                    <td>${r.output_tokens || 0}</td>
+                    <td>${r.total_tokens || 0}</td>
+                    <td style="color: #667eea; font-weight: 600;">${r.cost || 0}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 更新资料
+        async function updateProfile() {
+            const username = document.getElementById('settings-username').value.trim();
+
+            if (username.length < 3 || username.length > 32) {
+                alert('用户名长度必须为3-32个字符');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/user/profile', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('资料更新成功');
+                    document.getElementById('user-name').textContent = username;
+                } else {
+                    alert(data.message || '更新失败');
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        // 修改密码
+        async function changePassword() {
+            const oldPassword = document.getElementById('old-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+
+            if (!oldPassword || !newPassword) {
+                showAlert('password-alert', '请输入当前密码和新密码', 'error');
+                return;
+            }
+
+            if (newPassword.length < 6) {
+                showAlert('password-alert', '新密码长度至少为6个字符', 'error');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showAlert('password-alert', '两次输入的新密码不一致', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/user/change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert('password-alert', '密码修改成功', 'success');
+                    document.getElementById('old-password').value = '';
+                    document.getElementById('new-password').value = '';
+                    document.getElementById('confirm-password').value = '';
+                } else {
+                    showAlert('password-alert', data.message || '修改失败', 'error');
+                }
+            } catch (e) {
+                showAlert('password-alert', '请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // 复制 API Key
+        function copyApiKey() {
+            navigator.clipboard.writeText(apiKey).then(() => {
+                alert('API Key 已复制到剪贴板');
+            }).catch(() => {
+                alert('API Key: ' + apiKey);
+            });
+        }
+
+        // 显示提示消息
+        function showAlert(containerId, message, type) {
+            const container = document.getElementById(containerId);
+            container.className = `alert alert-${type} show`;
+            container.innerHTML = `<span>${type === 'success' ? '✅' : type === 'info' ? 'ℹ️' : '❌'}</span><span>${message}</span>`;
+            setTimeout(() => {
+                container.classList.remove('show');
+            }, 5000);
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check URL parameter for registration tab
+            const urlParams = new URLSearchParams(window.location.search);
+            const tab = urlParams.get('tab');
+
+            if (tab === 'register') {
+                // Switch to registration tab
+                switchAuthTab('register');
+            }
+
+            const storedKey = loadStoredApiKey();
+            if (storedKey && tab !== 'register') {
+                fetch('/api/user/balance', {
+                    headers: { 'Authorization': `Bearer ${storedKey}` }
+                }).then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error('Invalid');
+                }).then(data => {
+                    apiKey = storedKey;
+                    currentUser = data;
+                    showMainView(data);
+                }).catch(() => {
+                    // 自动登录失败
+                });
+            }
+        });
+
+        // ========== 配置与安装页面函数 ==========
+
+        // 更新安装指南内容
+        function updateInstallContent() {
+            // 更新API Key显示
+            if (apiKey) {
+                document.getElementById('install-api-key').textContent = apiKey;
+
+                // 更新claude配置命令
+                const claudeConfig = `# 配置Claude Code
+claude configure
+
+# 设置API密钥
+export ANTHROPIC_API_KEY="${apiKey}"
+
+# 设置本服务器代理地址
+export ANTHROPIC_BASE_URL="https://115.190.62.87/v1/anthropic/proxy"
+
+# 验证配置
+claude --version`;
+                document.getElementById('claude-config-code').textContent = claudeConfig;
+
+                // 更新settings.json（带用户API Key的版本）
+                const settingsJson = {
+                    "mcpServers": [
+                        {
+                            "command": "npx -y @modelcontext/instructor",
+                            "args": {
+                                "model": "claude-3-5-sonnet-20241022",
+                                "api_key": "${apiKey}"
+                            }
+                        }
+                    ]
+                };
+                document.getElementById('settings-json-code').textContent = JSON.stringify(settingsJson, null, 2);
+            }
+        }
+
+        // 切换安装教程
+        function updateInstallGuide() {
+            const osSelect = document.getElementById('os-select');
+            const selectedOs = osSelect ? osSelect.value : 'windows';
+
+            // 隐藏所有安装教程
+            document.querySelectorAll('.install-section').forEach(section => {
+                section.style.display = 'none';
+            });
+
+            // 显示选中系统的安装教程
+            const targetSection = document.getElementById(`install-${selectedOs}`);
+            if (targetSection) {
+                targetSection.style.display = 'block';
+            }
+        }
+
+        // 复制命令
+        function copyCommand(elementId) {
+            const codeElement = document.getElementById(elementId);
+            const text = codeElement.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                // 创建临时提示
+                const btn = event.target;
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✅ 已复制';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                }, 2000);
+            }).catch(() => {
+                // 降级方案
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('命令已复制');
+            });
+        }
+
+        // 复制SettingsJson
+        function copySettingsJson() {
+            const settingsJsonCode = document.getElementById('settings-json-code');
+            const text = settingsJsonCode.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                alert('settings.json 内容已复制到剪贴板');
+            }).catch(() => {
+                alert('settings.json:\n\n' + text);
+            });
+        }
+
+        // 复制服务器URL
+        function copyServerUrl() {
+            const url = 'https://115.190.62.87/v1/anthropic/proxy';
+            navigator.clipboard.writeText(url).then(() => {
+                alert('服务器地址已复制');
+            }).catch(() => {
+                alert('服务器地址: ' + url);
+            });
+        }
+
+        // 显示检测脚本
+        function showDetectScript(os) {
+            const scripts = {
+                windows: `@echo off
+setlocal enabledelayedexpansion
+echo ============================================
+echo    Aitachi API 环境检测脚本 v2.0
+echo ============================================
+echo.
+
+set ERROR_COUNT=0
+
+echo [1/7] 检查 Git 安装...
+git --version >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERROR] Git 未安装
+    echo [修复] 请运行: winget install Git.Git
+    echo [修复] 或访问: https://git-scm.com/download/win
+    set /a ERROR_COUNT+=1
+) else (
+    echo [OK] Git 已安装
+    git --version
+)
+
+echo.
+echo [2/7] 检查 Node.js 安装...
+node --version >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERROR] Node.js 未安装
+    echo [修复] 请运行: winget install OpenJS.NodeJS.LTS
+    echo [修复] 或访问: https://nodejs.org/
+    set /a ERROR_COUNT+=1
+) else (
+    echo [OK] Node.js 已安装
+    node --version
+)
+
+echo.
+echo [3/7] 检查 NPM 安装...
+npm --version >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo [ERROR] NPM 未安装
+    echo [修复] 请安装 Node.js (包含 NPM)
+    set /a ERROR_COUNT+=1
+) else (
+    echo [OK] NPM 已安装
+    npm --version
+)
+
+echo.
+echo [4/7] 检查 Claude Code 安装...
+claude --version >nul 2>&1
+if !ERRORLEVEL! NEQ 0 (
+    echo [WARN] Claude Code 未安装
+    echo [修复] 请运行: npm install -g @anthropic-ai/claude-code
+    echo [提示] 如果提示权限错误，请以管理员身份运行终端
+) else (
+    echo [OK] Claude Code 已安装
+    claude --version
+)
+
+echo.
+echo [5/7] 检查环境变量...
+echo %ANTHROPIC_API_KEY% | findstr /C:"sk-" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    echo [OK] ANTHROPIC_API_KEY 已设置
+) else (
+    echo [WARN] ANTHROPIC_API_KEY 未设置
+    echo [修复] 请设置环境变量或运行 claude configure
+)
+
+echo %ANTHROPIC_BASE_URL% | findstr /C:"115.190.62.87" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    echo [OK] ANTHROPIC_BASE_URL 已设置
+) else (
+    echo [WARN] ANTHROPIC_BASE_URL 未设置
+    echo [修复] setx ANTHROPIC_BASE_URL "https://115.190.62.87/v1/anthropic/proxy"
+)
+
+echo.
+echo [6/7] 测试 API 服务器连接...
+powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://115.190.62.87/health' -TimeoutSec 5; Write-Host '[OK] API 服务器连接正常 (HTTP ' $response.StatusCode ')' } catch { Write-Host '[ERROR] API 服务器连接失败' }" 2>nul
+
+echo.
+echo [7/7] 检查配置目录...
+if exist "%USERPROFILE%\\.claude" (
+    echo [OK] Claude 配置目录存在
+) else (
+    echo [WARN] Claude 配置目录不存在
+    echo [修复] mkdir "%USERPROFILE%\\.claude"
+)
+
+echo.
+echo ============================================
+if %ERROR_COUNT% GTR 0 (
+    echo [完成] 发现 %ERROR_COUNT% 个错误，请修复后重试
+) else (
+    echo [完成] 所有检查通过！环境配置正确
+)
+echo ============================================
+pause`,
+
+                macos: `#!/bin/bash
+echo "============================================"
+echo "   Aitachi API 环境检测脚本 v2.0"
+echo "============================================"
+echo ""
+
+ERROR_COUNT=0
+
+# 检查 Git
+echo "[1/7] 检查 Git 安装..."
+if command -v git &> /dev/null; then
+    echo "✅ Git 已安装: $(git --version)"
+else
+    echo "❌ Git 未安装"
+    echo "修复: brew install git"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+fi
+
+# 检查 Node.js
+echo ""
+echo "[2/7] 检查 Node.js 安装..."
+if command -v node &> /dev/null; then
+    NODE_VERSION=$(node --version)
+    echo "✅ Node.js 已安装: $NODE_VERSION"
+    # 检查版本是否 >= 18
+    if [[ $(echo "$NODE_VERSION" | cut -d'v' -f2 | cut -d'.' -f1) -lt 18 ]]; then
+        echo "⚠️  Node.js 版本过低，建议升级到 18+"
+    fi
+else
+    echo "❌ Node.js 未安装"
+    echo "修复: brew install node"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+fi
+
+# 检查 NPM
+echo ""
+echo "[3/7] 检查 NPM 安装..."
+if command -v npm &> /dev/null; then
+    echo "✅ NPM 已安装: $(npm --version)"
+else
+    echo "❌ NPM 未安装"
+    echo "修复: 请安装 Node.js (包含 NPM)"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+fi
+
+# 检查 Claude Code
+echo ""
+echo "[4/7] 检查 Claude Code 安装..."
+if command -v claude &> /dev/null; then
+    echo "✅ Claude Code 已安装: $(claude --version)"
+else
+    echo "⚠️  Claude Code 未安装"
+    echo "修复: npm install -g @anthropic-ai/claude-code"
+    echo "提示: 如遇权限问题，运行: npm config set prefix '~/.npm-global'"
+fi
+
+# 检查环境变量
+echo ""
+echo "[5/7] 检查环境变量..."
+if [[ -n "$ANTHROPIC_API_KEY" ]]; then
+    if [[ "$ANTHROPIC_API_KEY" == sk-* ]]; then
+        echo "✅ ANTHROPIC_API_KEY 已设置"
+    else
+        echo "⚠️  ANTHROPIC_API_KEY 格式可能不正确"
+    fi
+else
+    echo "⚠️  ANTHROPIC_API_KEY 未设置"
+    echo "修复: export ANTHROPIC_API_KEY=\\"你的API密钥\\""
+fi
+
+if [[ -n "$ANTHROPIC_BASE_URL" ]]; then
+    echo "✅ ANTHROPIC_BASE_URL 已设置: $ANTHROPIC_BASE_URL"
+else
+    echo "⚠️  ANTHROPIC_BASE_URL 未设置"
+    echo "修复: export ANTHROPIC_BASE_URL=\\"http://115.190.62.87/v1\\""
+fi
+
+# 测试 API 连接
+echo ""
+echo "[6/7] 测试 API 服务器连接..."
+API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 http://115.190.62.87/health)
+if [ "$API_STATUS" = "200" ]; then
+    echo "✅ API 服务器连接正常 (HTTP 200)"
+else
+    echo "❌ API 服务器连接失败 (HTTP $API_STATUS)"
+    echo "提示: 请检查网络连接或防火墙设置"
+fi
+
+# 检查配置目录
+echo ""
+echo "[7/7] 检查配置目录..."
+if [ -d "$HOME/.claude" ]; then
+    echo "✅ Claude 配置目录存在"
+    if [ -f "$HOME/.claude/settings.json" ]; then
+        echo "✅ settings.json 文件存在"
+    else
+        echo "⚠️  settings.json 文件不存在（可选）"
+    fi
+else
+    echo "⚠️  Claude 配置目录不存在"
+    echo "修复: mkdir -p ~/.claude"
+fi
+
+echo ""
+echo "============================================"
+if [ $ERROR_COUNT -gt 0 ]; then
+    echo "[完成] 发现 $ERROR_COUNT 个错误，请修复后重试"
+    exit 1
+else
+    echo "[完成] 所有检查通过！环境配置正确"
+fi
+echo "============================================"
+`,
+                linux: `#!/bin/bash
+echo "============================================"
+echo "   Aitachi API 环境检测脚本 v2.0"
+echo "============================================"
+echo ""
+
+ERROR_COUNT=0
+
+# 检查 Git
+echo "[1/8] 检查 Git 安装..."
+if command -v git &> /dev/null; then
+    echo "✅ Git 已安装: $(git --version)"
+else
+    echo "❌ Git 未安装"
+    echo "修复: sudo apt install -y git  (Ubuntu/Debian)"
+    echo "      sudo yum install -y git  (CentOS/RHEL)"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+fi
+
+# 检查 Node.js
+echo ""
+echo "[2/8] 检查 Node.js 安装..."
+if command -v node &> /dev/null; then
+    NODE_VERSION=$(node --version)
+    echo "✅ Node.js 已安装: $NODE_VERSION"
+    # 检查版本是否 >= 18
+    MAJOR_VERSION=$(echo "$NODE_VERSION" | cut -d'v' -f2 | cut -d'.' -f1)
+    if [ "$MAJOR_VERSION" -lt 18 ]; then
+        echo "⚠️  Node.js 版本过低，建议升级到 18+"
+    fi
+else
+    echo "❌ Node.js 未安装"
+    echo "修复: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+    echo "      sudo apt install -y nodejs"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+fi
+
+# 检查 NPM
+echo ""
+echo "[3/8] 检查 NPM 安装..."
+if command -v npm &> /dev/null; then
+    echo "✅ NPM 已安装: $(npm --version)"
+else
+    echo "❌ NPM 未安装"
+    echo "修复: 请安装 Node.js (包含 NPM)"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+fi
+
+# 检查构建工具
+echo ""
+echo "[4/8] 检查构建工具..."
+if command -v python3 &> /dev/null; then
+    echo "✅ Python3 已安装: $(python3 --version)"
+else
+    echo "⚠️  Python3 未安装（某些 npm 包需要）"
+    echo "修复: sudo apt install -y python3"
+fi
+
+if command -v make &> /dev/null; then
+    echo "✅ make 已安装"
+else
+    echo "⚠️  make 未安装（某些 npm 包需要）"
+    echo "修复: sudo apt install -y build-essential"
+fi
+
+# 检查 Claude Code
+echo ""
+echo "[5/8] 检查 Claude Code 安装..."
+if command -v claude &> /dev/null; then
+    echo "✅ Claude Code 已安装: $(claude --version)"
+else
+    echo "⚠️  Claude Code 未安装"
+    echo "修复: sudo npm install -g @anthropic-ai/claude-code"
+    echo "无 sudo 权限时:"
+    echo "  mkdir -p ~/.npm-global"
+    echo "  npm config set prefix '~/.npm-global'"
+    echo "  echo 'export PATH=~/.npm-global/bin:\\$PATH' >> ~/.bashrc"
+fi
+
+# 检查环境变量
+echo ""
+echo "[6/8] 检查环境变量..."
+if [[ -n "$ANTHROPIC_API_KEY" ]]; then
+    if [[ "$ANTHROPIC_API_KEY" == sk-* ]]; then
+        echo "✅ ANTHROPIC_API_KEY 已设置"
+    else
+        echo "⚠️  ANTHROPIC_API_KEY 格式可能不正确"
+    fi
+else
+    echo "⚠️  ANTHROPIC_API_KEY 未设置"
+    echo "修复: export ANTHROPIC_API_KEY=\\"你的API密钥\\""
+fi
+
+if [[ -n "$ANTHROPIC_BASE_URL" ]]; then
+    echo "✅ ANTHROPIC_BASE_URL 已设置: $ANTHROPIC_BASE_URL"
+else
+    echo "⚠️  ANTHROPIC_BASE_URL 未设置"
+    echo "修复: export ANTHROPIC_BASE_URL=\\"http://115.190.62.87/v1\\""
+fi
+
+# 测试 API 连接
+echo ""
+echo "[7/8] 测试 API 服务器连接..."
+API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 http://115.190.62.87/health)
+if [ "$API_STATUS" = "200" ]; then
+    echo "✅ API 服务器连接正常 (HTTP 200)"
+else
+    echo "❌ API 服务器连接失败 (HTTP $API_STATUS)"
+    echo "提示: 请检查网络连接或防火墙设置"
+fi
+
+# 检查配置目录
+echo ""
+echo "[8/8] 检查配置目录..."
+CLAUDE_DIR="$HOME/.claude"
+if [ -d "$CLAUDE_DIR" ]; then
+    echo "✅ Claude 配置目录存在: $CLAUDE_DIR"
+    if [ -f "$CLAUDE_DIR/settings.json" ]; then
+        echo "✅ settings.json 文件存在"
+    else
+        echo "⚠️  settings.json 文件不存在（可选）"
+    fi
+    if [ -d "$CLAUDE_DIR" ] && [ -w "$CLAUDE_DIR" ]; then
+        echo "✅ 配置目录可写"
+    else
+        echo "⚠️  配置目录不可写"
+        echo "修复: chmod +w ~/.claude"
+    fi
+else
+    echo "⚠️  Claude 配置目录不存在"
+    echo "修复: mkdir -p ~/.claude"
+fi
+
+echo ""
+echo "============================================"
+if [ $ERROR_COUNT -gt 0 ]; then
+    echo "[完成] 发现 $ERROR_COUNT 个错误，请修复后重试"
+    exit 1
+else
+    echo "[完成] 所有检查通过！环境配置正确"
+fi
+echo "============================================"
+`
+            };
+
+            const scriptCode = scripts[os] || scripts.windows;
+
+            const codeElement = document.getElementById('detect-script-code');
+            codeElement.textContent = scriptCode.trim();
+
+            // 高亮当前选择的OS按钮
+            document.querySelectorAll('.os-tabs button').forEach(btn => {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline');
+            });
+            event.target.classList.remove('btn-outline');
+            event.target.classList.add('btn-primary');
+        }
+
+        // 复制检测脚本
+        function copyDetectScript() {
+            const codeElement = document.getElementById('detect-script-code');
+            const text = codeElement.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                alert('检测脚本已复制，请粘贴到终端执行');
+            }).catch(() => {
+                alert('检测脚本:\n\n' + text);
+            });
+        }
+    </script>
+</body>
+</html>

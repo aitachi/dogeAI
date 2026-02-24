@@ -1,0 +1,64 @@
+[package]
+name = "api-gateway-simple"
+version = "2.0.0"
+edition = "2021"
+
+[dependencies]
+# Web框架
+axum = "0.7"
+tokio = { version = "1.35", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Redis
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# PostgreSQL
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
+
+# 配置
+config = "0.14"
+dotenv = "0.15"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 时间处理
+chrono = { version = "0.4" }
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# 错误处理
+anyhow = "1.0"
+thiserror = "1.0"
+
+# JWT认证
+jsonwebtoken = "9.2"
+
+# 本地缓存 (moka)
+moka = { version = "0.12", features = ["future"] }
+
+# 密钥管理
+secrecy = { version = "0.8", features = ["serde"] }
+rand = "0.8"
+
+# Hash
+sha2 = "0.10"
+hex = "0.4"
+
+# HTTP客户端
+reqwest = { version = "0.11", features = ["json"] }
+
+# WebSocket
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
