@@ -2,6 +2,36 @@
 
 完整的 API 计费和管理系统，支持用户认证、API Key 管理、实时计费、余额充值等功能。
 
+## 项目结构
+
+```
+billing-system/
+├── Cargo.toml           # 项目配置
+├── README.md            # 项目说明
+├── .env.example         # 环境变量示例
+├── .gitignore           # Git忽略规则
+├── src/                 # 源代码
+│   ├── main.rs          # 服务入口
+│   ├── api/             # API 路由
+│   ├── auth/            # 认证模块
+│   ├── billing/         # 计费模块
+│   ├── cache/           # 缓存模块
+│   ├── config/          # 配置管理
+│   ├── database/        # 数据库操作
+│   ├── key_manager/     # Key 管理
+│   ├── models/          # 数据模型
+│   ├── proxy/           # 代理转发
+│   ├── ratelimit/       # 限流
+│   ├── recharge/        # 充值模块
+│   └── scheduler/       # 定时任务
+├── migrations/          # 数据库迁移
+├── static/              # 静态文件
+├── tests/               # 测试
+├── scripts/             # 部署脚本
+├── examples/            # 示例代码
+└── docs/                # 项目文档
+```
+
 ## 功能特性
 
 - **用户认证**: JWT Token 认证，用户注册/登录
@@ -19,30 +49,6 @@
 - Redis - 缓存和会话
 - Tokio-Cron - 定时任务
 - PostgreSQL - 主数据库
-
-## 目录结构
-
-```
-billing-system/
-├── src/
-│   ├── main.rs           # 服务入口
-│   ├── api/              # API 路由
-│   ├── auth/             # 认证模块
-│   ├── billing/          # 计费模块
-│   ├── cache/            # 缓存模块
-│   ├── config/           # 配置管理
-│   ├── database/         # 数据库操作
-│   ├── key_manager/      # Key 管理
-│   ├── models/           # 数据模型
-│   ├── proxy/            # 代理转发
-│   ├── ratelimit/        # 限流
-│   ├── recharge/         # 充值模块
-│   └── scheduler/        # 定时任务
-├── migrations/           # 数据库迁移
-├── static/               # 静态文件
-├── tests/                # 测试
-└── docs/                 # 文档
-```
 
 ## 快速开始
 
@@ -68,7 +74,7 @@ cargo build --release
 cargo run --release
 ```
 
-服务将在 `http://localhost:3000` 启动。
+服务将在 `http://localhost:8082` 启动。
 
 ## API 端点
 
@@ -110,6 +116,14 @@ cargo run --release
 | POST | /v1/chat/completions | 聊天完成 (代理到上游) |
 | GET | /v1/models | 模型列表 |
 
+## 计费规则
+
+| 模型 | 输入价格 | 输出价格 |
+|------|---------|---------|
+| Claude Opus | 15 积分/百万 tokens | 75 积分/百万 tokens |
+| Claude Sonnet | 3 积分/百万 tokens | 15 积分/百万 tokens |
+| Claude Haiku | 0.25 积分/百万 tokens | 1.25 积分/百万 tokens |
+
 ## 测试
 
 ```bash
@@ -123,21 +137,13 @@ cargo test --test integration_tests
 cargo test --test performance_tests
 ```
 
-## 计费规则
-
-| 模型 | 输入价格 | 输出价格 |
-|------|---------|---------|
-| Claude Opus | 15 积分/百万 tokens | 75 积分/百万 tokens |
-| Claude Sonnet | 3 积分/百万 tokens | 15 积分/百万 tokens |
-| Claude Haiku | 0.25 积分/百万 tokens | 1.25 积分/百万 tokens |
-
 ## 部署
 
 ### Docker
 
 ```bash
 docker build -t billing-system .
-docker run -p 3000:3000 --env-file .env billing-system
+docker run -p 8082:8082 --env-file .env billing-system
 ```
 
 ### Systemd
@@ -151,7 +157,4 @@ systemctl start billing-system
 
 ## 文档
 
-- [需求对比分析](docs/需求对比分析.md)
-- [测试报告](docs/测试报告.md)
-- [TEST_CASES.md](TEST_CASES.md) - 完整测试用例
-- [TEST_REPORT_FULL.md](TEST_REPORT_FULL.md) - 测试报告
+更多详细文档请参考 [docs/](./docs/) 目录。

@@ -2,6 +2,26 @@
 
 高性能的两级缓存实现，结合本地 LRU 缓存和 Redis 分布式缓存。
 
+## 项目结构
+
+```
+cache/
+├── Cargo.toml           # 项目配置
+├── README.md            # 项目说明
+├── .env.example         # 环境变量示例
+├── .gitignore           # Git忽略规则
+├── src/                 # 源代码
+│   ├── lib.rs           # 库入口
+│   ├── main.rs          # 二进制入口
+│   ├── models.rs        # 数据模型
+│   ├── config.rs        # 配置
+│   └── error.rs         # 错误类型
+├── examples/            # 示例代码
+├── tests/               # 集成测试
+├── scripts/             # 部署脚本
+└── docs/                # 项目文档
+```
+
 ## 架构
 
 ```
@@ -24,14 +44,23 @@
 - L2 命中率 >= 90%
 - 整体命中率 >= 95%
 
-## 依赖
+## 快速开始
 
-- `lru` - LRU 缓存实现
-- `redis` - Redis 客户端
-- `tokio` - 异步运行时
-- `serde` - 序列化
+### 环境准备
 
-## 使用示例
+```bash
+# Redis
+docker run -d -p 6379:6379 redis:alpine
+```
+
+### 配置
+
+```bash
+cp .env.example .env
+# 编辑 .env 文件设置配置
+```
+
+### 使用示例
 
 ```rust
 use two_level_cache::{TwoLevelCache, TwoLevelCacheConfig};
@@ -53,16 +82,6 @@ let stats = cache.stats().await?;
 println!("L1 命中率: {:.2}%", stats.l1_hit_rate() * 100.0);
 ```
 
-## 构建和运行
-
-```bash
-# 构建库
-cargo build --release
-
-# 运行示例
-cargo run --bin cache-server
-```
-
 ## 配置
 
 | 参数 | 默认值 | 说明 |
@@ -72,3 +91,20 @@ cargo run --bin cache-server
 | l2_default_ttl | 300 | L2 默认 TTL (秒) |
 | redis_url | redis://127.0.0.1:6379 | Redis 连接 URL |
 | key_prefix | cache2: | Redis key 前缀 |
+
+## 构建
+
+```bash
+# 构建库
+cargo build --release
+
+# 运行示例
+cargo run --example server
+```
+
+## 依赖
+
+- `lru` - LRU 缓存实现
+- `redis` - Redis 客户端
+- `tokio` - 异步运行时
+- `serde` - 序列化

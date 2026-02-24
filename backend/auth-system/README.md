@@ -1,37 +1,33 @@
 # Token认证系统 - 完整实现
 
-## 📁 项目结构
+高性能JWT认证系统, 支持多层缓存、权限管理、Token撤销等功能。
+
+## 项目结构
 
 ```
-/root/auth-system/
-│
-├── 📦 核心实现
-│   ├── Cargo.toml              # 项目配置 (PostgreSQL + Redis)
-│   ├── src/
-│   │   ├── lib.rs              # 库入口
-│   │   ├── models.rs           # 数据模型 (Claims, UserInfo, Permission)
-│   │   ├── error.rs            # 错误类型
-│   │   ├── config.rs           # 配置管理
-│   │   ├── cache.rs            # 双层缓存 (moka + Redis)
-│   │   ├── service.rs          # 认证服务核心
-│   │   └── middleware.rs       # Axum中间件
-│   │
-│   ├── migrations/
-│   │   └── 001_initial.sql     # PostgreSQL初始化
-│   │
-│   └── examples/
-│       └── server.rs           # 完整示例服务器
-│
-└── 📚 文档
-    ├── README.md               # 本文件
-    ├── CACHE_ANALYSIS.md       # 缓存策略分析
-    ├── PROJECT_OVERVIEW.md     # 项目总览
-    └── VERSIONS.md             # 版本说明
+auth-system/
+├── Cargo.toml           # 项目配置
+├── README.md            # 项目说明
+├── .env.example         # 环境变量示例
+├── .gitignore           # Git忽略规则
+├── src/                 # 源代码
+│   ├── lib.rs           # 库入口
+│   ├── models.rs        # 数据模型
+│   ├── error.rs         # 错误类型
+│   ├── config.rs        # 配置管理
+│   ├── cache.rs         # 双层缓存
+│   ├── service.rs       # 认证服务核心
+│   └── middleware.rs    # Axum中间件
+├── migrations/          # 数据库迁移
+├── examples/            # 示例代码
+├── tests/               # 集成测试
+├── scripts/             # 部署脚本
+└── docs/                # 项目文档
 ```
 
-## 🎯 核心特性
+## 核心特性
 
-### ✅ 已实现功能
+### 已实现功能
 
 1. **JWT Token管理**
    - HS256签名算法
@@ -58,20 +54,7 @@
    - 权限检查中间件
    - 用户提取器
 
-### 📊 数据库表
-
-```sql
--- 核心表
-users                 -- 用户表
-user_sessions         -- 会话管理
-api_keys             -- API密钥
-auth_audit_log       -- 审计日志
-
--- 视图
-active_users_stats   -- 用户统计
-```
-
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 环境准备
 
@@ -92,9 +75,8 @@ docker run -d -p 6379:6379 redis:alpine
 ### 2. 配置环境变量
 
 ```bash
-export JWT_SECRET="your-secret-key-min-256-bits"
-export DATABASE_URL="postgresql://postgres:postgres@localhost/auth_db"
-export REDIS_URL="redis://127.0.0.1:6379"
+cp .env.example .env
+# 编辑 .env 文件，设置配置
 ```
 
 ### 3. 初始化数据库
@@ -110,13 +92,12 @@ psql -d auth_db -f migrations/001_initial.sql
 ### 4. 运行示例
 
 ```bash
-cd /root/auth-system
 cargo run --example server
 ```
 
 访问 http://localhost:3000/health
 
-## 📖 使用示例
+## 使用示例
 
 ### 生成Token
 
@@ -154,9 +135,7 @@ let app = Router::new()
     ));
 ```
 
-## 🔧 配置选项
-
-### 环境变量
+## 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
@@ -165,18 +144,7 @@ let app = Router::new()
 | `REDIS_URL` | Redis连接 | redis://127.0.0.1:6379 |
 | `JWT_ISSUER` | 签发者 | aitachi-auth |
 
-### 缓存配置
-
-```rust
-// L1本地缓存
-.local_capacity(1000)    // 最多1000条
-.local_ttl_secs(3600)    // TTL 1小时
-
-// L2 Redis缓存
-.redis_ttl_secs(86400)   // TTL 24小时
-```
-
-## 📈 性能
+## 性能
 
 | 指标 | 数值 |
 |------|------|
@@ -186,13 +154,11 @@ let app = Router::new()
 | 最大QPS | 10K+ |
 | 内存占用 | ~110MB |
 
-## 📝 文档
+## 文档
 
-- **CACHE_ANALYSIS.md** - 双层缓存 vs 单层缓存分析
-- **PROJECT_OVERVIEW.md** - 项目详细说明
-- **VERSIONS.md** - 版本对比
+更多详细文档请参考 [docs/](./docs/) 目录。
 
-## 🎓 数据结构
+## 数据结构
 
 ### Claims (JWT Payload)
 
@@ -213,22 +179,7 @@ pub struct Claims {
 }
 ```
 
-### UserInfo
-
-```rust
-pub struct UserInfo {
-    pub user_id: i64,
-    pub username: String,
-    pub email: String,
-    pub tier: String,
-    pub scopes: Vec<String>,
-    pub balance: i64,
-    pub token_version: i32,
-    pub status: String,
-}
-```
-
-## 🔒 安全建议
+## 安全建议
 
 1. **密钥管理**
    - 使用强随机密钥 (>=256位)
@@ -243,7 +194,7 @@ pub struct UserInfo {
    - 客户端: 内存存储
    - 避免: LocalStorage (XSS风险)
 
-## 🧪 测试
+## 测试
 
 ```bash
 # 单元测试
@@ -256,25 +207,7 @@ cargo test -- --ignored
 cargo test --release performance
 ```
 
-## 📞 常见问题
-
-### Q: 是否必须使用Redis?
-
-A: 对于单实例部署, 可以仅使用moka本地缓存。详见 `CACHE_ANALYSIS.md`
-
-### Q: 如何切换到单层缓存?
-
-A: 在 `service.rs` 中移除Redis相关代码, 增加moka容量即可
-
-### Q: 生产环境推荐配置?
-
-A: 使用PostgreSQL + Redis双层缓存, 完整功能
-
-## 📄 许可证
-
-MIT License
-
 ---
 
 **版本**: 2.0.0
-**最后更新**: 2026-02-06
+**最后更新**: 2026-02-24
