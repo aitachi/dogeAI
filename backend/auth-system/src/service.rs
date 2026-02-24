@@ -200,28 +200,31 @@ impl AuthService {
 
     /// 从数据库获取用户信息
     async fn get_user_info(&self, user_id: i64) -> AuthResult<UserInfo> {
-        let row = sqlx::query_as!(
-            UserInfo,
+        let row = sqlx::query_as::<_, (i64, String, Option<String>, String, Vec<String>, i64, i32, String, Option<chrono::DateTime<chrono::Utc>>)>(
             r#"
             SELECT
-                id as user_id,
-                username,
-                email,
-                tier,
-                scopes,
-                balance,
-                token_version,
-                status
+                id, username, email, tier, scopes,
+                balance, token_version, status, created_at
             FROM users
             WHERE id = $1
-            "#,
-            user_id
+            "#
         )
+        .bind(user_id)
         .fetch_optional(self.db.as_ref())
         .await?
         .ok_or(AuthError::UserNotFound)?;
 
-        Ok(row)
+        Ok(UserInfo {
+            user_id: row.0,
+            username: row.1,
+            email: row.2.unwrap_or_default(),
+            tier: row.3,
+            scopes: row.4,
+            balance: row.5,
+            token_version: row.6,
+            status: row.7,
+            created_at: row.8.map(|dt| dt.timestamp()),
+        })
     }
 
     /// 撤销用户所有Token (增加Token版本)
@@ -242,17 +245,17 @@ impl AuthService {
         let current_version = current_version.unwrap_or(0);
 
         // 2. 增加Token版本并标记用户状态
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE users
             SET token_version = token_version + 1,
                 status_reason = $2,
                 suspended_at = NOW()
             WHERE id = $1
-            "#,
-            user_id,
-            reason
+            "#
         )
+        .bind(user_id)
+        .bind(reason)
         .execute(self.db.as_ref())
         .await?;
 

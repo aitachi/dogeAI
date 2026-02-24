@@ -266,7 +266,9 @@ pub async fn token_refresh_middleware(
 // Axum提取器实现
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use async_trait::async_trait;
 
+#[async_trait]
 impl<S> FromRequestParts<S> for AuthenticatedUser
 where
     S: Send + Sync,

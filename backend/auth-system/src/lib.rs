@@ -73,6 +73,8 @@ pub mod models;
 pub mod service;
 
 // 重新导出常用类型
+pub use cache::CacheManager;
+pub use config::AuthConfig;
 pub use error::{AuthError, AuthResult};
 pub use middleware::AuthenticatedUser;
 pub use models::{Claims, Permission, TokenType, UserInfo};

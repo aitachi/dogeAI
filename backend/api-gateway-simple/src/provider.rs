@@ -308,8 +308,8 @@ impl ModelPoolManager {
     pub async fn call_api(&self, user_id: &str, req: &ChatRequest, pool_alias: &str) -> Result<ApiCallResult, String> {
         let start_time = Instant::now();
 
-        // 将模型别名映射到池ID
-        let pool_id = self.map_alias_to_pool(pool_alias);
+        // 将模型别名映射到池ID (从数据库加载)
+        let pool_id = self.map_alias_to_pool(pool_alias).await;
 
         // 获取模型池配置
         let pool = self.get_pool(&pool_id).await
@@ -323,11 +323,11 @@ impl ModelPoolManager {
         let task_sequence = self.get_user_task_sequence(user_id).await?;
 
         // 查找路由规则
-        let mut rule = self.get_routing_rule(&pool_id, task_sequence).await
+        let rule = self.get_routing_rule(&pool_id, task_sequence).await
             .ok_or_else(|| format!("没有找到路由规则: pool={}, task_seq={}", pool_id, task_sequence))?;
 
         // 获取提供商
-        let mut provider = self.get_provider(&rule.provider_id).await
+        let provider = self.get_provider(&rule.provider_id).await
             .ok_or_else(|| format!("提供商不存在: {}", rule.provider_id))?;
 
         // 检查提供商健康状态
@@ -380,7 +380,7 @@ impl ModelPoolManager {
 
     /// 尝试故障转移
     async fn try_fallback(&self, pool: &ModelPoolConfig, original_rule: &RoutingRule,
-                          user_id: &str, req: &ChatRequest, task_sequence: &i32) -> Result<ApiCallResult, String> {
+                          user_id: &str, req: &ChatRequest, _task_sequence: &i32) -> Result<ApiCallResult, String> {
         let start_time = Instant::now();
 
         for fallback_provider_id in &pool.fallback_chain {
@@ -502,7 +502,7 @@ impl ModelPoolManager {
     }
 
     /// 构建请求体
-    fn build_request_body(&self, provider: &ProviderConfig, model: &str, req: &ChatRequest) -> Result<serde_json::Value, String> {
+    fn build_request_body(&self, _provider: &ProviderConfig, model: &str, req: &ChatRequest) -> Result<serde_json::Value, String> {
         Ok(serde_json::json!({
             "model": model,
             "max_tokens": req.max_tokens,
@@ -511,7 +511,7 @@ impl ModelPoolManager {
     }
 
     /// 构建请求URL
-    fn build_url(&self, provider: &ProviderConfig, model: &str) -> Result<String, String> {
+    fn build_url(&self, provider: &ProviderConfig, _model: &str) -> Result<String, String> {
         match provider.provider_type.as_str() {
             "glm" => Ok(format!("{}/v1/messages", provider.base_url)),
             "qwen" | "deepseek" => Ok(format!("{}/chat/completions", provider.base_url)),
@@ -552,15 +552,56 @@ impl ModelPoolManager {
         }
     }
 
-    /// 将模型别名映射到池ID
-    fn map_alias_to_pool(&self, alias: &str) -> String {
-        match alias {
-            "opus" | "gpt-4" => "opus".to_string(),
-            "sonnet" | "gpt-3.5-turbo" => "sonnet".to_string(),
-            "haiku" | "gpt-3.5-turbo-16k" => "haiku".to_string(),
-            "codex" | "code-davinci-002" => "codex".to_string(),
-            _ => alias.to_string(),
+    /// 将模型别名映射到池ID (从数据库加载，支持动态配置)
+    async fn map_alias_to_pool(&self, alias: &str) -> String {
+        // 首先尝试从数据库查询模型别名映射
+        let pool_id = sqlx::query_as::<_, (String,)>(
+            "SELECT pool_id FROM model_aliases WHERE model_alias = $1 AND enabled = true"
+        )
+        .bind(alias)
+        .fetch_optional(&self.db)
+        .await;
+
+        match pool_id {
+            Ok(Some((pool_id,))) => pool_id,
+            _ => {
+                // 数据库中没有配置，使用默认映射规则（向后兼容）
+                self.get_default_pool_mapping(alias)
+            }
         }
+    }
+
+    /// 获取默认的模型池映射（向后兼容）
+    fn get_default_pool_mapping(&self, alias: &str) -> String {
+        let alias_lower = alias.to_lowercase();
+
+        // 智能匹配：检查别名是否包含关键字
+        if alias_lower.contains("opus") || alias_lower == "gpt-4" {
+            "opus".to_string()
+        } else if alias_lower.contains("sonnet") || alias_lower == "gpt-3.5-turbo" {
+            "sonnet".to_string()
+        } else if alias_lower.contains("haiku") || alias_lower == "gpt-3.5-turbo-16k" {
+            "haiku".to_string()
+        } else if alias_lower.contains("codex") || alias_lower == "code-davinci-002" {
+            "codex".to_string()
+        } else {
+            // 如果别名本身就是有效的池ID，直接返回
+            // 否则将别名作为池ID使用
+            alias.to_string()
+        }
+    }
+
+    /// 重新加载模型别名映射（可以在运行时调用）
+    pub async fn reload_model_aliases(&self) -> Result<(), String> {
+        let mappings = sqlx::query_as::<_, (String, String)>(
+            "SELECT model_alias, pool_id FROM model_aliases WHERE enabled = true"
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| format!("加载模型别名失败: {}", e))?;
+
+        info!("已加载 {} 个模型别名映射", mappings.len());
+        Ok(())
     }
 
     /// 记录成功调用
@@ -585,7 +626,7 @@ impl ModelPoolManager {
     }
 
     /// 记录失败调用
-    async fn record_failure(&self, provider_id: &str, error: &str) {
+    async fn record_failure(&self, provider_id: &str, _error: &str) {
         let now = chrono::Utc::now().timestamp();
         let _ = sqlx::query(
             "UPDATE model_providers
@@ -629,10 +670,89 @@ impl ModelPoolManager {
         .await;
 
         // 更新内存中的状态
-        if let Some(mut provider) = self.providers.write().await.get_mut(provider_id) {
+        if let Some(provider) = self.providers.write().await.get_mut(provider_id) {
             provider.consecutive_failures = 0;
             provider.health_status = "healthy".to_string();
             provider.last_health_check = Some(now);
+        }
+    }
+
+    /// 对单个提供商执行健康检查
+    async fn check_provider_health(
+        provider_id: &str,
+        provider_config: &ProviderConfig,
+        db: &PgPool,
+    ) -> HealthCheckResult {
+        use std::time::Instant;
+
+        let start = Instant::now();
+
+        // 构建健康检查 URL
+        let health_url = match provider_config.provider_type.as_str() {
+            "anthropic" => format!("{}/v1/messages", provider_config.base_url.trim_end_matches('/')),
+            "openai" => format!("{}/v1/models", provider_config.base_url.trim_end_matches('/')),
+            _ => format!("{}/health", provider_config.base_url.trim_end_matches('/')),
+        };
+
+        // 创建 HTTP 客户端
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+
+        let client = match client {
+            Ok(c) => c,
+            Err(e) => {
+                return HealthCheckResult {
+                    provider_id: provider_id.to_string(),
+                    is_healthy: false,
+                    response_time_ms: start.elapsed().as_millis() as u64,
+                    error_message: Some(format!("客户端创建失败: {}", e)),
+                    checked_at: chrono::Utc::now().timestamp(),
+                };
+            }
+        };
+
+        // 发送健康检查请求
+        let result = if !provider_config.api_key.is_empty() {
+            client
+                .get(&health_url)
+                .header("x-api-key", &provider_config.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .send()
+                .await
+        } else {
+            client.get(&health_url).send().await
+        };
+
+        let response_time_ms = start.elapsed().as_millis() as u64;
+        let checked_at = chrono::Utc::now().timestamp();
+
+        match result {
+            Ok(response) => {
+                let is_healthy = response.status().is_success() || response.status().is_client_error();
+                // 4xx 错误也算健康（说明服务可达），5xx 才算不健康
+
+                HealthCheckResult {
+                    provider_id: provider_id.to_string(),
+                    is_healthy,
+                    response_time_ms,
+                    error_message: if is_healthy {
+                        None
+                    } else {
+                        Some(format!("HTTP状态码: {}", response.status()))
+                    },
+                    checked_at,
+                }
+            }
+            Err(e) => {
+                HealthCheckResult {
+                    provider_id: provider_id.to_string(),
+                    is_healthy: false,
+                    response_time_ms,
+                    error_message: Some(format!("请求失败: {}", e)),
+                    checked_at,
+                }
+            }
         }
     }
 
@@ -647,26 +767,78 @@ impl ModelPoolManager {
                 interval.tick().await;
 
                 // 获取所有需要检查的提供商
-                let provider_ids: Vec<String> = {
-                    providers.read().await.keys().cloned().collect()
+                let providers_to_check: Vec<(String, ProviderConfig)> = {
+                    providers.read().await.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect()
                 };
 
-                for provider_id in &provider_ids {
-                    // 这里可以添加实际的健康检查逻辑
-                    // 暂时只更新检查时间
+                let mut healthy_count = 0;
+                let mut total_count = providers_to_check.len();
+
+                for (provider_id, provider_config) in &providers_to_check {
+                    let result = Self::check_provider_health(provider_id, &provider_config, &db).await;
+
                     let now = chrono::Utc::now().timestamp();
-                    let _ = sqlx::query(
-                        "UPDATE model_providers
-                         SET last_health_check = $1
-                         WHERE provider_id = $2"
-                    )
-                    .bind(now)
-                    .bind(&provider_id)
-                    .execute(&db)
-                    .await;
+
+                    if result.is_healthy {
+                        healthy_count += 1;
+                        // 重置失败计数
+                        let _ = sqlx::query(
+                            "UPDATE model_providers
+                             SET consecutive_failures = 0,
+                                 health_status = 'healthy',
+                                 last_health_check = $1,
+                                 response_time_ms = $2,
+                                 updated_at = NOW()
+                             WHERE provider_id = $3"
+                        )
+                        .bind(now)
+                        .bind(result.response_time_ms as i64)
+                        .bind(provider_id)
+                        .execute(&db)
+                        .await;
+
+                        // 更新内存状态
+                        if let Some(mut p) = providers.write().await.get_mut(provider_id) {
+                            p.health_status = "healthy".to_string();
+                            p.consecutive_failures = 0;
+                            p.last_health_check = Some(now);
+                        }
+                    } else {
+                        // 增加失败计数
+                        let _ = sqlx::query(
+                            "UPDATE model_providers
+                             SET consecutive_failures = consecutive_failures + 1,
+                                 health_status = CASE
+                                     WHEN consecutive_failures + 1 >= 5 THEN 'unhealthy'
+                                     ELSE 'healthy'
+                                 END,
+                                 last_health_check = $1,
+                                 last_error = $2,
+                                 response_time_ms = $3,
+                                 updated_at = NOW()
+                             WHERE provider_id = $4"
+                        )
+                        .bind(now)
+                        .bind(result.error_message.unwrap_or_default())
+                        .bind(result.response_time_ms as i64)
+                        .bind(provider_id)
+                        .execute(&db)
+                        .await;
+
+                        // 更新内存状态
+                        if let Some(mut p) = providers.write().await.get_mut(provider_id) {
+                            p.consecutive_failures += 1;
+                            p.last_health_check = Some(now);
+                            if p.consecutive_failures >= 5 {
+                                p.health_status = "unhealthy".to_string();
+                            }
+                        }
+                    }
                 }
 
-                debug!("健康检查完成，检查了 {} 个提供商", provider_ids.len());
+                debug!("健康检查完成: {}/{} 提供商健康", healthy_count, total_count);
             }
         });
     }

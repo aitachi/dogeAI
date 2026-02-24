@@ -5,21 +5,23 @@ use chrono::{DateTime, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm};
 use redis::aio::ConnectionManager;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::sync::Arc;
 use std::time::Duration;
 use moka::future::Cache;
 use secrecy::{ExposeSecret, Secret};
 use sqlx::PgPool;
 use tracing::{info, warn, debug};
+use rand::Rng;
 
 // ========== 配置常量 ==========
 
 /// Token TTL: 15分钟 (900秒)
-/// 满足要求: token ttl ≤ 15min
+/// 满足要求: token ttl <= 15min
 pub const TOKEN_TTL_SECS: i64 = 900;
 
 /// 密钥轮换窗口: 24小时
-/// 满足要求: 密钥轮换窗口 ≤ 24h
+/// 满足要求: 密钥轮换窗口 <= 24h
 pub const KEY_ROTATION_HOURS: i64 = 24;
 
 /// JWT验证延迟目标: <5ms
@@ -79,9 +81,9 @@ impl Claims {
 /// 密钥轮换管理器
 pub struct KeyManager {
     /// 当前活跃密钥 (primary key)
-    current_key: String,
+    current_key: Secret<String>,
     /// 上一个密钥 (grace period期间仍可验证)
-    previous_key: Option<String>,
+    previous_key: Option<Secret<String>>,
     /// 密钥版本号
     key_version: i32,
     /// 最后轮换时间
@@ -101,16 +103,15 @@ impl KeyManager {
             });
 
         Ok(Self {
-            current_key: secret,
+            current_key: Secret::new(secret.clone()),
             previous_key: None,
             key_version: 1,
             last_rotation: Utc::now(),
         })
     }
 
-    /// 生成随机密钥 (256位)
-    fn generate_secret() -> String {
-        use rand::Rng;
+    /// 生成随机密钥
+    pub fn generate_secret() -> String {
         const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         let mut rng = rand::thread_rng();
         (0..64)
@@ -121,81 +122,54 @@ impl KeyManager {
             .collect()
     }
 
-    /// 从配置文件加载密钥 (受限文件管理)
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let secret = std::fs::read_to_string(path)?;
-        let secret = secret.trim().to_string();
+    /// 获取当前编码密钥
+    pub fn get_current_key(&self) -> &[u8] {
+        self.current_key.expose_secret().as_bytes()
+    }
 
-        if secret.len() < 32 {
-            anyhow::bail!("JWT密钥长度必须至少32字符");
-        }
+    /// 获取当前解码密钥
+    pub fn get_decoding_key(&self) -> DecodingKey {
+        DecodingKey::from_secret(self.current_key.expose_secret().as_bytes())
+    }
 
-        Ok(Self {
-            current_key: secret,
-            previous_key: None,
-            key_version: 1,
-            last_rotation: Utc::now(),
+    /// 获取上一个解码密钥 (用于grace period验证)
+    pub fn get_previous_decoding_key(&self) -> Option<DecodingKey> {
+        self.previous_key.as_ref().map(|key| {
+            DecodingKey::from_secret(key.expose_secret().as_bytes())
         })
     }
 
-    /// 密钥轮换 (每24小时调用一次)
-    pub fn rotate(&mut self) -> bool {
-        let now = Utc::now();
-        let hours_since_rotation = (now - self.last_rotation).num_hours();
+    /// 执行密钥轮换
+    pub fn rotate(&mut self) -> anyhow::Result<()> {
+        let new_secret = Self::generate_secret();
+        let old_key = self.current_key.expose_secret().clone();
 
-        if hours_since_rotation >= KEY_ROTATION_HOURS {
-            info!("执行JWT密钥轮换，当前版本: {}", self.key_version);
+        self.previous_key = Some(Secret::new(old_key));
+        self.current_key = Secret::new(new_secret);
+        self.key_version += 1;
+        self.last_rotation = Utc::now();
 
-            // 保存旧密钥作为previous_key
-            self.previous_key = Some(self.current_key.clone());
+        info!("JWT密钥已轮换: 新版本={}", self.key_version);
 
-            // 生成新密钥
-            let new_secret = Self::generate_secret();
-            self.current_key = new_secret;
-
-            self.key_version += 1;
-            self.last_rotation = now;
-
-            info!("密钥轮换完成，新版本: {}", self.key_version);
-            return true;
-        }
-
-        false
+        Ok(())
     }
 
     /// 检查是否需要轮换
-    pub fn needs_rotation(&self) -> bool {
-        (Utc::now() - self.last_rotation).num_hours() >= KEY_ROTATION_HOURS
+    pub fn should_rotate(&self) -> bool {
+        let elapsed = Utc::now().signed_duration_since(self.last_rotation);
+        elapsed.num_hours() >= KEY_ROTATION_HOURS
     }
 
-    /// 获取当前编码密钥
-    pub fn encoding_key(&self) -> EncodingKey {
-        EncodingKey::from_secret(self.current_key.as_bytes())
-    }
-
-    /// 获取解码密钥 (尝试当前和上一个密钥)
-    pub fn decoding_keys(&self) -> Vec<DecodingKey> {
-        let mut keys = vec![
-            DecodingKey::from_secret(self.current_key.as_bytes())
-        ];
-
-        if let Some(ref prev) = self.previous_key {
-            keys.push(DecodingKey::from_secret(prev.as_bytes()));
-        }
-
-        keys
-    }
-
-    /// 获取密钥版本
+    /// 获取当前密钥版本
     pub fn version(&self) -> i32 {
         self.key_version
     }
 }
 
-// ========== 黑名单管理 ==========
+// ========== Token黑名单 ==========
 
-/// Token黑名单 (Redis实现)
-/// 用于强制下线token
+/// Token黑名单 (使用Redis)
+#[derive(Clone)]
 pub struct TokenBlacklist {
     redis: ConnectionManager,
 }
@@ -205,602 +179,67 @@ impl TokenBlacklist {
         Self { redis }
     }
 
-    /// 将token加入黑名单
-    pub async fn add(&self, jti: &str, ttl_secs: usize) -> anyhow::Result<()> {
-        let key = format!("auth:blacklist:jti:{}", jti);
+    /// 添加token到黑名单
+    pub async fn add(&self, jti: &str, ttl: usize) -> anyhow::Result<()> {
         let mut conn = self.redis.clone();
+        let key = format!("blacklist:{}", jti);
 
         redis::cmd("SETEX")
             .arg(&key)
-            .arg(ttl_secs)
+            .arg(ttl)
             .arg("1")
             .query_async::<_, ()>(&mut conn)
             .await?;
 
-        debug!("Token {} 已加入黑名单，TTL: {}秒", jti, ttl_secs);
-        Ok(())
-    }
+        debug!("Token已加入黑名单: jti={}, ttl={}s", jti, ttl);
 
-    /// 批量将用户所有token加入黑名单
-    pub async fn revoke_user_all(
-        &self,
-        user_id: &str,
-        token_version: i32,
-        ttl_secs: usize,
-    ) -> anyhow::Result<()> {
-        let key = format!("auth:blacklist:user:{}", user_id);
-        let mut conn = self.redis.clone();
-
-        redis::cmd("SETEX")
-            .arg(&key)
-            .arg(ttl_secs)
-            .arg(token_version.to_string())
-            .query_async::<_, ()>(&mut conn)
-            .await?;
-
-        info!("用户 {} 所有token已撤销，版本 > {}", user_id, token_version);
         Ok(())
     }
 
     /// 检查token是否在黑名单中
-    pub async fn is_revoked(&self, jti: &str) -> anyhow::Result<bool> {
-        let key = format!("auth:blacklist:jti:{}", jti);
+    pub async fn contains(&self, jti: &str) -> bool {
         let mut conn = self.redis.clone();
+        let key = format!("blacklist:{}", jti);
 
-        let exists: usize = redis::cmd("EXISTS")
+        let result: Option<String> = redis::cmd("GET")
             .arg(&key)
             .query_async(&mut conn)
-            .await?;
+            .await
+            .unwrap_or(None);
 
-        Ok(exists > 0)
+        result.is_some()
     }
 
-    /// 检查用户token版本
-    pub async fn get_user_version(&self, user_id: &str) -> anyhow::Result<Option<i32>> {
-        let key = format!("auth:blacklist:user:{}", user_id);
+    /// 撤销用户的所有token (通过增加token版本)
+    pub async fn revoke_user_tokens(&self, user_id: &str, version: i32) -> anyhow::Result<()> {
         let mut conn = self.redis.clone();
+        let key = format!("user_version:{}", user_id);
 
-        let version: Option<String> = redis::cmd("GET")
+        // 记录用户的token版本，验证时检查
+        redis::cmd("SETEX")
+            .arg(&key)
+            .arg(BLACKLIST_TTL_SECS)
+            .arg(version)
+            .query_async::<_, ()>(&mut conn)
+            .await?;
+
+        debug!("用户Token已撤销: user_id={}, version={}", user_id, version);
+
+        Ok(())
+    }
+
+    /// 获取用户的当前token版本
+    pub async fn get_user_version(&self, user_id: &str) -> Option<i32> {
+        let mut conn = self.redis.clone();
+        let key = format!("user_version:{}", user_id);
+
+        let result: Option<String> = redis::cmd("GET")
             .arg(&key)
             .query_async(&mut conn)
-            .await?;
-
-        Ok(version.and_then(|v| v.parse().ok()))
-    }
-}
-
-// ========== 认证服务 ==========
-
-/// 用户信息 (缓存结构)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserInfo {
-    pub user_id: String,
-    pub username: String,
-    pub tier: String,
-    pub scopes: Vec<String>,
-    pub balance: i64,
-    pub token_version: i32,
-}
-
-/// 认证统计指标
-/// 用于跟踪拒绝/通过率
-#[derive(Debug, Default)]
-pub struct AuthMetrics {
-    /// 总验证次数
-    pub total_verifications: AtomicU64,
-    /// 成功验证次数
-    pub successful_verifications: AtomicU64,
-    /// 拒绝验证次数
-    pub failed_verifications: AtomicU64,
-    /// 按原因分类的拒绝计数
-    pub rejected_by_expired: AtomicU64,
-    pub rejected_by_revoked: AtomicU64,
-    pub rejected_by_invalid: AtomicU64,
-    pub rejected_by_user_not_found: AtomicU64,
-}
-
-use std::sync::atomic::{AtomicU64, Ordering};
-
-impl AuthMetrics {
-    /// 记录成功验证
-    pub fn record_success(&self) {
-        self.total_verifications.fetch_add(1, Ordering::Relaxed);
-        self.successful_verifications.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// 记录失败验证
-    pub fn record_failure(&self, reason: &AuthError) {
-        self.total_verifications.fetch_add(1, Ordering::Relaxed);
-        self.failed_verifications.fetch_add(1, Ordering::Relaxed);
-
-        match reason {
-            AuthError::TokenExpired => {
-                self.rejected_by_expired.fetch_add(1, Ordering::Relaxed);
-            }
-            AuthError::TokenRevoked => {
-                self.rejected_by_revoked.fetch_add(1, Ordering::Relaxed);
-            }
-            AuthError::InvalidToken(_) => {
-                self.rejected_by_invalid.fetch_add(1, Ordering::Relaxed);
-            }
-            AuthError::UserNotFound(_) => {
-                self.rejected_by_user_not_found.fetch_add(1, Ordering::Relaxed);
-            }
-            _ => {}
-        }
-    }
-
-    /// 获取通过率 (0.0 - 1.0)
-    pub fn pass_rate(&self) -> f64 {
-        let total = self.total_verifications.load(Ordering::Relaxed);
-        if total == 0 {
-            return 1.0;
-        }
-        let success = self.successful_verifications.load(Ordering::Relaxed);
-        success as f64 / total as f64
-    }
-
-    /// 获取拒绝率 (0.0 - 1.0)
-    pub fn rejection_rate(&self) -> f64 {
-        1.0 - self.pass_rate()
-    }
-
-    /// 重置统计
-    pub fn reset(&self) {
-        self.total_verifications.store(0, Ordering::Relaxed);
-        self.successful_verifications.store(0, Ordering::Relaxed);
-        self.failed_verifications.store(0, Ordering::Relaxed);
-        self.rejected_by_expired.store(0, Ordering::Relaxed);
-        self.rejected_by_revoked.store(0, Ordering::Relaxed);
-        self.rejected_by_invalid.store(0, Ordering::Relaxed);
-        self.rejected_by_user_not_found.store(0, Ordering::Relaxed);
-    }
-
-    /// 获取统计报告
-    pub fn report(&self) -> MetricsReport {
-        MetricsReport {
-            total_verifications: self.total_verifications.load(Ordering::Relaxed),
-            successful_verifications: self.successful_verifications.load(Ordering::Relaxed),
-            failed_verifications: self.failed_verifications.load(Ordering::Relaxed),
-            rejected_by_expired: self.rejected_by_expired.load(Ordering::Relaxed),
-            rejected_by_revoked: self.rejected_by_revoked.load(Ordering::Relaxed),
-            rejected_by_invalid: self.rejected_by_invalid.load(Ordering::Relaxed),
-            rejected_by_user_not_found: self.rejected_by_user_not_found.load(Ordering::Relaxed),
-            pass_rate: self.pass_rate(),
-            rejection_rate: self.rejection_rate(),
-        }
-    }
-}
-
-/// 统计报告
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct MetricsReport {
-    pub total_verifications: u64,
-    pub successful_verifications: u64,
-    pub failed_verifications: u64,
-    pub rejected_by_expired: u64,
-    pub rejected_by_revoked: u64,
-    pub rejected_by_invalid: u64,
-    pub rejected_by_user_not_found: u64,
-    pub pass_rate: f64,
-    pub rejection_rate: f64,
-}
-
-/// JWT认证服务
-/// 实现本地JWT验证 + Redis黑名单
-pub struct JwtAuthService {
-    /// PostgreSQL连接池
-    db: PgPool,
-
-    /// Redis连接管理器
-    redis: ConnectionManager,
-
-    /// 密钥管理器
-    key_manager: Arc<std::sync::RwLock<KeyManager>>,
-
-    /// L1: 本地内存缓存 (moka)
-    /// 键: token哈希, 值: UserInfo
-    local_cache: Cache<String, UserInfo>,
-
-    /// Token黑名单
-    blacklist: TokenBlacklist,
-
-    /// JWT算法
-    algorithm: Algorithm,
-
-    /// 认证统计指标
-    metrics: Arc<AuthMetrics>,
-}
-
-impl JwtAuthService {
-    /// 创建新的认证服务
-    pub async fn new(
-        db: PgPool,
-        redis_url: &str,
-    ) -> anyhow::Result<Self> {
-        // 连接Redis
-        let client = redis::Client::open(redis_url)?;
-        let conn = ConnectionManager::new(client).await?;
-
-        // 创建密钥管理器
-        let key_manager = Arc::new(std::sync::RwLock::new(
-            KeyManager::from_env()?
-        ));
-
-        // 创建本地缓存
-        let local_cache = Cache::builder()
-            .max_capacity(LOCAL_CACHE_CAPACITY)
-            .time_to_live(Duration::from_secs(LOCAL_CACHE_TTL_SECS))
-            .build();
-
-        let blacklist = TokenBlacklist::new(conn.clone());
-
-        Ok(Self {
-            db,
-            redis: conn,
-            key_manager,
-            local_cache,
-            blacklist,
-            algorithm: Algorithm::HS256,
-            metrics: Arc::new(AuthMetrics::default()),
-        })
-    }
-
-    /// 从Redis连接创建服务
-    pub async fn from_parts(
-        db: PgPool,
-        redis: ConnectionManager,
-    ) -> anyhow::Result<Self> {
-        let key_manager = Arc::new(std::sync::RwLock::new(
-            KeyManager::from_env()?
-        ));
-
-        let local_cache = Cache::builder()
-            .max_capacity(LOCAL_CACHE_CAPACITY)
-            .time_to_live(Duration::from_secs(LOCAL_CACHE_TTL_SECS))
-            .build();
-
-        let blacklist = TokenBlacklist::new(redis.clone());
-
-        Ok(Self {
-            db,
-            redis,
-            key_manager,
-            local_cache,
-            blacklist,
-            algorithm: Algorithm::HS256,
-            metrics: Arc::new(AuthMetrics::default()),
-        })
-    }
-
-    /// 生成JWT Token
-    pub fn create_token(
-        &self,
-        user_id: &str,
-        username: &str,
-        tier: &str,
-        scopes: Vec<String>,
-        token_version: i32,
-    ) -> anyhow::Result<String> {
-        let now = Utc::now();
-        let jti = uuid::Uuid::new_v4().to_string();
-
-        let claims = Claims {
-            sub: user_id.to_string(),
-            exp: now.timestamp() + TOKEN_TTL_SECS,
-            iat: now.timestamp(),
-            iss: "api-gateway".to_string(),
-            nbf: now.timestamp(),
-            user_id: user_id.to_string(),
-            username: username.to_string(),
-            tier: tier.to_string(),
-            scopes,
-            token_version,
-            jti: jti.clone(),
-        };
-
-        let key_manager = self.key_manager.read().unwrap();
-        let token = encode(
-            &Header::default(),
-            &claims,
-            &key_manager.encoding_key(),
-        )?;
-
-        info!("为用户 {} 生成新token，JTI: {}, 有效期: {}秒",
-              user_id, jti, TOKEN_TTL_SECS);
-
-        Ok(token)
-    }
-
-    /// 刷新Token (在续期窗口内)
-    pub fn refresh_token(&self, old_token: &str) -> anyhow::Result<Option<String>> {
-        let claims = self.parse_claims(old_token)?;
-
-        let remaining = claims.remaining_secs();
-
-        // 如果剩余时间 < 5分钟，自动刷新
-        if remaining < 300 && remaining > 0 {
-            debug!("Token {} 剩余{}秒，执行刷新", claims.jti, remaining);
-            return Ok(Some(self.create_token(
-                &claims.user_id,
-                &claims.username,
-                &claims.tier,
-                claims.scopes.clone(),
-                claims.token_version,
-            )?));
-        }
-
-        Ok(None)
-    }
-
-    /// 验证短 API Key (sk-xxxxxx 格式)
-    async fn verify_api_key(&self, api_key: &str) -> Result<UserInfo, AuthError> {
-        // 检查是否是 API Key 格式 (sk- 开头，支持任何长度)
-        // 旧格式: sk-XXXXXXXXXXXXX
-        // Anthropic 格式: sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-        if api_key.starts_with("sk-") {
-            // 从数据库查找 API Key
-            let user = sqlx::query_as::<_, (String, String, String, i64, i32)>(
-                "SELECT u.user_id, u.username, u.tier, u.balance, u.token_version
-                 FROM users u
-                 INNER JOIN user_api_keys k ON u.user_id = k.user_id
-                 WHERE k.api_key = $1 AND k.is_active = true AND u.active = true"
-            )
-            .bind(api_key)
-            .fetch_optional(&self.db)
             .await
-            .map_err(|e| AuthError::Database(e.to_string()))?
-            .ok_or_else(|| AuthError::InvalidToken("无效的API Key".to_string()))?;
+            .unwrap_or(None);
 
-            // 更新最后使用时间
-            let _ = sqlx::query("UPDATE user_api_keys SET created_at = NOW() WHERE api_key = $1")
-                .bind(api_key)
-                .execute(&self.db)
-                .await;
-
-            return Ok(UserInfo {
-                user_id: user.0,
-                username: user.1,
-                tier: user.2,
-                balance: user.3,
-                token_version: user.4,
-                scopes: vec!["read".to_string(), "write".to_string()],
-            });
-        }
-        Err(AuthError::InvalidToken("无效的API Key格式".to_string()))
-    }
-
-    /// 验证Token (本地JWT验证 或 API Key)
-    /// 满足要求: 本地JWT验证, JWT验证延迟 <5ms
-    pub async fn verify_token(&self, token: &str) -> Result<UserInfo, AuthError> {
-        let start = std::time::Instant::now();
-
-        // 0. 首先检查是否是 API Key (sk- 或 sk-ant- 开头)
-        // Anthropic 格式: sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (65字符)
-        // 旧格式: sk-XXXXXXXXXXXXX (短格式)
-        if token.starts_with("sk-") {
-            match self.verify_api_key(token).await {
-                Ok(user) => {
-                    self.metrics.record_success();
-                    return Ok(user);
-                }
-                Err(_) => {
-                    // API Key 验证失败，继续尝试 JWT 验证
-                }
-            }
-        }
-
-        // 1. 计算token哈希用于缓存键
-        let token_hash = self.hash_token(token);
-
-        // 2. L1本地缓存检查 (<0.1ms)
-        if let Some(user) = self.local_cache.get(&token_hash).await {
-            debug!("Token命中L1缓存，延迟: {:?}", start.elapsed());
-            self.metrics.record_success();
-            return Ok(user);
-        }
-
-        // 3. 解析JWT (<1ms)
-        let claims = match self.parse_claims(token) {
-            Ok(c) => c,
-            Err(e) => {
-                self.metrics.record_failure(&e);
-                return Err(e);
-            }
-        };
-
-        // 4. 检查token是否过期
-        if claims.is_expired() {
-            self.metrics.record_failure(&AuthError::TokenExpired);
-            return Err(AuthError::TokenExpired);
-        }
-
-        // 5. 检查黑名单 (Redis)
-        if self.blacklist.is_revoked(&claims.jti).await.unwrap_or(false) {
-            self.metrics.record_failure(&AuthError::TokenRevoked);
-            return Err(AuthError::TokenRevoked);
-        }
-
-        // 6. 检查用户token版本
-        if let Some(revoked_version) = self.blacklist.get_user_version(&claims.user_id).await.unwrap_or(None) {
-            if claims.token_version <= revoked_version {
-                self.metrics.record_failure(&AuthError::TokenRevoked);
-                return Err(AuthError::TokenRevoked);
-            }
-        }
-
-        // 7. 获取用户信息
-        let user = match self.get_user_info(&claims.user_id).await {
-            Ok(u) => u,
-            Err(e) => {
-                self.metrics.record_failure(&e);
-                return Err(e);
-            }
-        };
-
-        // 8. 缓存到L1
-        self.local_cache.insert(token_hash, user.clone()).await;
-
-        let latency = start.elapsed();
-        debug!("Token验证完成，延迟: {:?}", latency);
-
-        // 检查延迟要求
-        if latency.as_millis() > MAX_VERIFY_LATENCY_MS as u128 {
-            warn!("JWT验证延迟超过目标: {:?} > {}ms", latency, MAX_VERIFY_LATENCY_MS);
-        }
-
-        // 记录成功验证
-        self.metrics.record_success();
-
-        Ok(user)
-    }
-
-    /// 解析JWT Claims (公开方法供main.rs使用)
-    pub fn parse_claims(&self, token: &str) -> Result<Claims, AuthError> {
-        // 尝试用所有密钥解码
-        let key_manager = self.key_manager.read().unwrap();
-        let keys = key_manager.decoding_keys();
-
-        let mut last_err = None;
-
-        for key in keys {
-            let validation = Validation::new(self.algorithm);
-            match decode::<Claims>(token, &key, &validation) {
-                Ok(data) => return Ok(data.claims),
-                Err(e) => last_err = Some(e),
-            }
-        }
-
-        Err(AuthError::InvalidToken(format!(
-            "无法解析JWT: {:?}",
-            last_err
-        )))
-    }
-
-    /// 获取用户信息 (从数据库或Redis)
-    async fn get_user_info(&self, user_id: &str) -> Result<UserInfo, AuthError> {
-        // 先从Redis获取
-        let redis_key = format!("user:info:{}", user_id);
-        let mut conn = self.redis.clone();
-
-        if let Ok(Some(cached)) = redis::cmd("GET")
-            .arg(&redis_key)
-            .query_async::<_, Option<String>>(&mut conn)
-            .await
-        {
-            if let Ok(user) = serde_json::from_str::<UserInfo>(&cached) {
-                return Ok(user);
-            }
-        }
-
-        // 从数据库获取
-        let user = sqlx::query_as::<_, (String, String, String, i64, i32)>(
-            "SELECT user_id, username, tier, balance, token_version
-             FROM users WHERE user_id = $1 AND active = true"
-        )
-        .bind(user_id)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|e| AuthError::Database(e.to_string()))?
-        .ok_or_else(|| AuthError::UserNotFound(user_id.to_string()))?;
-
-        let user_info = UserInfo {
-            user_id: user.0,
-            username: user.1,
-            tier: user.2,
-            balance: user.3,
-            token_version: user.4,
-            scopes: vec!["read".to_string(), "write".to_string()], // 默认权限
-        };
-
-        // 缓存到Redis
-        if let Ok(json) = serde_json::to_string(&user_info) {
-            let _ = redis::cmd("SETEX")
-                .arg(&redis_key)
-                .arg(3600) // 1小时
-                .arg(json)
-                .query_async::<_, ()>(&mut conn)
-                .await;
-        }
-
-        Ok(user_info)
-    }
-
-    /// 撤销单个token (同时清除L1缓存)
-    pub async fn revoke_token_by_hash(&self, token_hash: &str) -> anyhow::Result<()> {
-        // 从L1缓存中删除
-        self.local_cache.invalidate(token_hash).await;
-        Ok(())
-    }
-
-    /// 撤销单个token (通过jti加入黑名单)
-    pub async fn revoke_token(&self, jti: &str) -> anyhow::Result<()> {
-        self.blacklist.add(jti, BLACKLIST_TTL_SECS).await
-    }
-
-    /// 撤销单个token并清除L1缓存
-    pub async fn revoke_token_with_cache(&self, jti: &str, token_hash: &str) -> anyhow::Result<()> {
-        // 加入Redis黑名单
-        self.blacklist.add(jti, BLACKLIST_TTL_SECS).await?;
-        // 清除L1缓存
-        self.local_cache.invalidate(token_hash).await;
-        Ok(())
-    }
-
-    /// 撤销用户所有token
-    pub async fn revoke_user_all(&self, user_id: &str, token_version: i32) -> anyhow::Result<()> {
-        self.blacklist.revoke_user_all(user_id, token_version, BLACKLIST_TTL_SECS).await?;
-
-        // 清除所有本地缓存 (因为无法知道哪些缓存属于该用户)
-        self.local_cache.invalidate_all();
-
-        Ok(())
-    }
-
-    /// 密钥轮换
-    pub fn rotate_keys(&self) -> bool {
-        let mut key_manager = self.key_manager.write().unwrap();
-        key_manager.rotate()
-    }
-
-    /// 检查是否需要轮换密钥
-    pub fn needs_rotation(&self) -> bool {
-        let key_manager = self.key_manager.read().unwrap();
-        key_manager.needs_rotation()
-    }
-
-    /// 获取当前密钥版本
-    pub fn key_version(&self) -> i32 {
-        let key_manager = self.key_manager.read().unwrap();
-        key_manager.version()
-    }
-
-    /// 计算token哈希 (用于缓存键)
-    fn hash_token(&self, token: &str) -> String {
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(token.as_bytes());
-        format!("{:x}", hasher.finalize())[..32].to_string()
-    }
-
-    /// 获取缓存统计
-    pub fn cache_stats(&self) -> CacheStats {
-        CacheStats {
-            size: self.local_cache.entry_count(),
-            hit_count: 0,
-            miss_count: 0,
-            hit_rate: 0.0,
-        }
-    }
-
-    /// 获取认证指标 (拒绝/通过率统计)
-    pub fn auth_metrics(&self) -> MetricsReport {
-        self.metrics.report()
-    }
-
-    /// 重置认证统计
-    pub fn reset_metrics(&self) {
-        self.metrics.reset()
+        result.and_then(|s| s.parse().ok())
     }
 }
 
@@ -836,72 +275,526 @@ pub enum AuthError {
     Internal(String),
 }
 
+impl From<jsonwebtoken::errors::Error> for AuthError {
+    fn from(err: jsonwebtoken::errors::Error) -> Self {
+        match err.kind() {
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
+            _ => AuthError::InvalidToken(err.to_string()),
+        }
+    }
+}
+
+impl From<sqlx::error::Error> for AuthError {
+    fn from(err: sqlx::error::Error) -> Self {
+        AuthError::Database(err.to_string())
+    }
+}
+
+impl From<redis::RedisError> for AuthError {
+    fn from(err: redis::RedisError) -> Self {
+        AuthError::Redis(err.to_string())
+    }
+}
+
+impl From<anyhow::Error> for AuthError {
+    fn from(err: anyhow::Error) -> Self {
+        AuthError::Internal(err.to_string())
+    }
+}
+
+// 实现 axum IntoResponse 以便可以在 handler 中直接返回
 impl axum::response::IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
-        use axum::Json;
-
         let (status, error_type, message) = match self {
-            AuthError::InvalidToken(msg) => {
-                (StatusCode::UNAUTHORIZED, "invalid_token", msg)
-            }
-            AuthError::TokenExpired => {
-                (StatusCode::UNAUTHORIZED, "token_expired", "Token已过期".to_string())
-            }
-            AuthError::TokenRevoked => {
-                (StatusCode::UNAUTHORIZED, "token_revoked", "Token已被撤销".to_string())
-            }
-            AuthError::UserNotFound(_) => {
-                (StatusCode::UNAUTHORIZED, "user_not_found", "用户不存在".to_string())
-            }
-            AuthError::UserSuspended => {
-                (StatusCode::FORBIDDEN, "user_suspended", "用户已被禁用".to_string())
-            }
-            AuthError::Forbidden => {
-                (StatusCode::FORBIDDEN, "forbidden", "权限不足".to_string())
-            }
-            AuthError::Database(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "database_error", msg)
-            }
-            AuthError::Redis(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "redis_error", msg)
-            }
-            AuthError::Internal(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg)
-            }
+            AuthError::InvalidToken(msg) => (axum::http::StatusCode::UNAUTHORIZED, "authentication_error", msg),
+            AuthError::TokenExpired => (axum::http::StatusCode::UNAUTHORIZED, "authentication_error", "Token已过期".to_string()),
+            AuthError::TokenRevoked => (axum::http::StatusCode::UNAUTHORIZED, "authentication_error", "Token已被撤销".to_string()),
+            AuthError::UserNotFound(msg) => (axum::http::StatusCode::NOT_FOUND, "not_found", msg),
+            AuthError::UserSuspended => (axum::http::StatusCode::FORBIDDEN, "forbidden", "用户已被禁用".to_string()),
+            AuthError::Forbidden => (axum::http::StatusCode::FORBIDDEN, "forbidden", "权限不足".to_string()),
+            AuthError::Database(msg) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
+            AuthError::Redis(msg) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
+            AuthError::Internal(msg) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
         };
 
-        let body = Json(serde_json::json!({
-            "error": error_type,
-            "message": message,
-            "timestamp": Utc::now().to_rfc3339(),
+        let body = axum::Json(serde_json::json!({
+            "error_type": error_type,
+            "message": message
         }));
 
         (status, body).into_response()
     }
 }
 
-// ========== 缓存统计 ==========
+// ========== 用户信息 ==========
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct CacheStats {
-    pub size: u64,
-    pub hit_count: u64,
-    pub miss_count: u64,
-    pub hit_rate: f64,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub user_id: String,
+    pub username: String,
+    pub tier: String,
+    pub token_version: i32,
+    pub scopes: Vec<String>,
 }
 
-// ========== Axum集成 ==========
+// ========== JWT认证服务 ==========
 
-/// 已认证的用户提取器
+/// JWT认证服务
+pub struct JwtAuthService {
+    /// PostgreSQL连接池
+    db: PgPool,
+
+    /// Redis连接管理器
+    redis: ConnectionManager,
+
+    /// 密钥管理器
+    key_manager: Arc<std::sync::RwLock<KeyManager>>,
+
+    /// L1: 本地内存缓存 (moka)
+    /// 键: token哈希, 值: UserInfo
+    local_cache: Cache<String, UserInfo>,
+
+    /// Token黑名单
+    blacklist: TokenBlacklist,
+
+    /// JWT算法
+    algorithm: Algorithm,
+}
+
+impl JwtAuthService {
+    /// 创建新的认证服务
+    pub async fn new(
+        db: PgPool,
+        redis_url: &str,
+    ) -> anyhow::Result<Self> {
+        // 连接Redis
+        let client = redis::Client::open(redis_url)?;
+        let conn = ConnectionManager::new(client).await?;
+
+        // 创建密钥管理器
+        let key_manager = Arc::new(std::sync::RwLock::new(
+            KeyManager::from_env()?
+        ));
+
+        // 创建本地缓存
+        let local_cache = Cache::builder()
+            .max_capacity(LOCAL_CACHE_CAPACITY)
+            .time_to_live(Duration::from_secs(LOCAL_CACHE_TTL_SECS))
+            .build();
+
+        let blacklist = TokenBlacklist::new(conn.clone());
+
+        info!("JWT认证服务初始化完成");
+
+        Ok(Self {
+            db,
+            redis: conn,
+            key_manager,
+            local_cache,
+            blacklist,
+            algorithm: Algorithm::HS256,
+        })
+    }
+
+    /// 从Redis连接创建服务
+    pub async fn from_parts(
+        db: PgPool,
+        redis: ConnectionManager,
+    ) -> anyhow::Result<Self> {
+        let key_manager = Arc::new(std::sync::RwLock::new(
+            KeyManager::from_env()?
+        ));
+
+        let local_cache = Cache::builder()
+            .max_capacity(LOCAL_CACHE_CAPACITY)
+            .time_to_live(Duration::from_secs(LOCAL_CACHE_TTL_SECS))
+            .build();
+
+        let blacklist = TokenBlacklist::new(redis.clone());
+
+        Ok(Self {
+            db,
+            redis,
+            key_manager,
+            local_cache,
+            blacklist,
+            algorithm: Algorithm::HS256,
+        })
+    }
+
+    /// 生成JWT Token
+    pub fn create_token(
+        &self,
+        user_id: &str,
+        username: &str,
+        tier: &str,
+        scopes: Vec<String>,
+        token_version: i32,
+    ) -> anyhow::Result<String> {
+        let now = Utc::now();
+        let jti = uuid::Uuid::new_v4().to_string();
+
+        let claims = Claims {
+            sub: user_id.to_string(),
+            exp: now.timestamp() + TOKEN_TTL_SECS,
+            iat: now.timestamp(),
+            iss: "dogeai-gateway".to_string(),
+            nbf: now.timestamp(),
+            user_id: user_id.to_string(),
+            username: username.to_string(),
+            tier: tier.to_string(),
+            scopes,
+            token_version,
+            jti: jti.clone(),
+        };
+
+        let key_manager = self.key_manager.read().unwrap();
+        let encoding_key = EncodingKey::from_secret(key_manager.get_current_key());
+
+        let token = encode(&Header::default(), &claims, &encoding_key)?;
+
+        debug!("Token已生成: user_id={}, jti={}", user_id, jti);
+
+        Ok(token)
+    }
+
+    /// 验证JWT Token
+    pub async fn verify_token(&self, token: &str) -> anyhow::Result<AuthenticatedUser> {
+        let start = std::time::Instant::now();
+
+        // 计算token哈希用于本地缓存
+        let token_hash = format!("{:x}", sha2::Sha256::digest(token.as_bytes()));
+
+        // L1: 检查本地缓存
+        if let Some(user_info) = self.local_cache.get(&token_hash).await {
+            debug!("Token验证命中本地缓存: latency={}ms", start.elapsed().as_millis());
+            return Ok(AuthenticatedUser {
+                user_id: user_info.user_id.clone(),
+                username: user_info.username.clone(),
+                tier: user_info.tier.clone(),
+                token_version: user_info.token_version,
+                balance: 0,  // 从缓存获取时没有balance
+                scopes: user_info.scopes.clone(),
+            });
+        }
+
+        // 解码token - 必须在await之前完成以避免Send问题
+        let decoding_key = {
+            let key_manager = self.key_manager.read().unwrap();
+            key_manager.get_decoding_key()
+        };
+
+        let token_data = decode::<Claims>(
+            token,
+            &decoding_key,
+            &Validation::new(self.algorithm),
+        )?;
+
+        let claims = token_data.claims;
+
+        // 检查是否过期
+        if claims.is_expired() {
+            return Err(AuthError::TokenExpired.into());
+        }
+
+        // 检查黑名单 (jti)
+        if self.blacklist.contains(&claims.jti).await {
+            return Err(AuthError::TokenRevoked.into());
+        }
+
+        // 检查用户token版本
+        if let Some(stored_version) = self.blacklist.get_user_version(&claims.user_id).await {
+            if stored_version > claims.token_version {
+                return Err(AuthError::TokenRevoked.into());
+            }
+        }
+
+        // 从数据库获取用户信息 (包括balance)
+        let balance: Option<i64> = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+            .bind(&claims.user_id)
+            .fetch_optional(&self.db)
+            .await
+            .unwrap_or(None);
+
+        let balance = balance.unwrap_or(0);
+
+        // 缓存验证结果
+        let user_info = UserInfo {
+            user_id: claims.user_id.clone(),
+            username: claims.username.clone(),
+            tier: claims.tier.clone(),
+            token_version: claims.token_version,
+            scopes: claims.scopes.clone(),
+        };
+
+        self.local_cache.insert(token_hash, user_info.clone()).await;
+
+        let elapsed = start.elapsed();
+        if elapsed.as_millis() > MAX_VERIFY_LATENCY_MS as u128 {
+            warn!("Token验证延迟过高: {}ms", elapsed.as_millis());
+        } else {
+            debug!("Token验证完成: latency={}ms", elapsed.as_millis());
+        }
+
+        Ok(AuthenticatedUser {
+            user_id: user_info.user_id,
+            username: user_info.username,
+            tier: user_info.tier,
+            token_version: user_info.token_version,
+            balance,
+            scopes: user_info.scopes,
+        })
+    }
+
+    /// 验证Token并返回完整信息
+    pub async fn verify_token_full(&self, token: &str) -> anyhow::Result<(String, Claims, i32)> {
+        let key_manager = self.key_manager.read().unwrap();
+        let token_data = decode::<Claims>(
+            token,
+            &key_manager.get_decoding_key(),
+            &Validation::new(self.algorithm),
+        )?;
+
+        let claims = token_data.claims;
+        let token_version = claims.token_version;
+
+        Ok((
+            token.to_string(),
+            claims,
+            token_version,
+        ))
+    }
+
+    /// 撤销单个token
+    pub async fn revoke_token(&self, jti: &str) -> anyhow::Result<()> {
+        self.blacklist.add(jti, BLACKLIST_TTL_SECS).await
+    }
+
+    /// 撤销用户的所有token
+    pub async fn revoke_user_tokens(&self, user_id: &str) -> anyhow::Result<()> {
+        // 获取用户当前的token版本并+1
+        let version: Option<i32> = sqlx::query_scalar(
+            "SELECT token_version FROM users WHERE id = $1"
+        )
+        .bind(user_id)
+        .fetch_optional(&self.db)
+        .await?
+        .map(|v: i64| v as i32);
+
+        let current_version = version.unwrap_or(0);
+        let new_version = current_version + 1;
+
+        // 更新数据库中的版本
+        sqlx::query(
+            "UPDATE users SET token_version = $2 WHERE id = $1"
+        )
+        .bind(user_id)
+        .bind(new_version)
+        .execute(&self.db)
+        .await?;
+
+        // 在Redis中记录版本变化
+        self.blacklist.revoke_user_tokens(user_id, new_version).await?;
+
+        // 清除本地缓存
+        self.local_cache.invalidate_all();
+
+        info!("用户所有Token已撤销: user_id={}, new_version={}", user_id, new_version);
+
+        Ok(())
+    }
+
+    /// 检查token是否被撤销
+    pub async fn is_token_revoked(&self, jti: &str) -> bool {
+        self.blacklist.contains(jti).await
+    }
+
+    /// 获取用户信息
+    pub async fn get_user_info(&self, user_id: &str) -> anyhow::Result<Option<UserInfo>> {
+        let row = sqlx::query_as::<_, (String, String, String, i32)>(
+            "SELECT id, username, tier, token_version FROM users WHERE id = $1"
+        )
+        .bind(user_id)
+        .fetch_optional(&self.db)
+        .await?;
+
+        Ok(row.map(|(id, username, tier, token_version)| UserInfo {
+            user_id: id,
+            username,
+            tier,
+            token_version,
+            scopes: vec![],
+        }))
+    }
+
+    /// 验证用户凭据
+    pub async fn verify_credentials(
+        &self,
+        account: &str,
+        password: &str,
+    ) -> anyhow::Result<Option<UserInfo>> {
+        use sha2::{Digest, Sha256};
+        let password_hash = format!("{:x}", Sha256::digest(password.as_bytes()));
+
+        let row = sqlx::query_as::<_, (String, String, String, i32)>(
+            "SELECT id, username, tier, token_version FROM users WHERE (username = $1 OR email = $1) AND password_hash = $2"
+        )
+        .bind(account)
+        .bind(password_hash)
+        .fetch_optional(&self.db)
+        .await?;
+
+        Ok(row.map(|(id, username, tier, token_version)| UserInfo {
+            user_id: id,
+            username,
+            tier,
+            token_version,
+            scopes: vec![],
+        }))
+    }
+
+    /// 获取缓存统计
+    pub async fn get_cache_stats(&self) -> CacheStats {
+        let size = self.local_cache.entry_count();
+        CacheStats {
+            local_size: size,
+            local_hits: 0,
+            local_misses: 0,
+            redis_size: 0,
+            hit_count: 0,
+            miss_count: 0,
+            hit_rate: 0.0,
+            size,
+        }
+    }
+
+    /// 获取缓存统计 (同步版本)
+    pub fn cache_stats(&self) -> CacheStats {
+        let size = self.local_cache.entry_count();
+        CacheStats {
+            local_size: size,
+            local_hits: 0,
+            local_misses: 0,
+            redis_size: 0,
+            hit_count: 0,
+            miss_count: 0,
+            hit_rate: 0.0,
+            size,
+        }
+    }
+
+    /// 获取当前密钥版本
+    pub fn key_version(&self) -> i32 {
+        let key_manager = self.key_manager.read().unwrap();
+        key_manager.version()
+    }
+
+    /// 解析Token (不验证)
+    pub fn parse_claims(&self, token: &str) -> anyhow::Result<Claims> {
+        let key_manager = self.key_manager.read().unwrap();
+        let token_data = decode::<Claims>(
+            token,
+            &key_manager.get_decoding_key(),
+            &Validation::new(self.algorithm),
+        )?;
+        Ok(token_data.claims)
+    }
+
+    /// 刷新Token
+    pub fn refresh_token(&self, token: &str) -> anyhow::Result<Option<String>> {
+        let claims = self.parse_claims(token)?;
+
+        // 检查是否需要刷新
+        let remaining = claims.remaining_secs();
+        if remaining > TOKEN_TTL_SECS / 2 {
+            // 还有足够时间，不需要刷新
+            return Ok(None);
+        }
+
+        // 生成新token
+        Ok(Some(self.create_token(
+            &claims.user_id,
+            &claims.username,
+            &claims.tier,
+            claims.scopes,
+            claims.token_version,
+        )?))
+    }
+
+    /// 撤销token并清除缓存
+    pub async fn revoke_token_with_cache(&self, jti: &str, token_hash: &str) -> anyhow::Result<()> {
+        self.blacklist.add(jti, BLACKLIST_TTL_SECS).await?;
+        // 清除本地缓存中对应的条目
+        let _ = self.local_cache.invalidate(token_hash).await;
+        Ok(())
+    }
+
+    /// 撤销用户所有token (使用新版本)
+    pub async fn revoke_user_all(&self, user_id: &str, old_version: i32) -> anyhow::Result<()> {
+        let new_version = old_version + 1;
+
+        // 更新数据库中的版本
+        sqlx::query(
+            "UPDATE users SET token_version = $2 WHERE id = $1"
+        )
+        .bind(user_id)
+        .bind(new_version)
+        .execute(&self.db)
+        .await?;
+
+        // 在Redis中记录版本变化
+        self.blacklist.revoke_user_tokens(user_id, new_version).await?;
+
+        // 清除本地缓存
+        self.local_cache.invalidate_all();
+
+        info!("用户所有Token已撤销: user_id={}, new_version={}", user_id, new_version);
+
+        Ok(())
+    }
+
+    /// 检查是否需要密钥轮换
+    pub async fn needs_rotation(&self) -> bool {
+        let key_manager = self.key_manager.read().unwrap();
+        key_manager.should_rotate()
+    }
+
+    /// 执行密钥轮换
+    pub async fn rotate_keys(&self) -> anyhow::Result<()> {
+        let mut key_manager = self.key_manager.write().unwrap();
+        key_manager.rotate()?;
+        Ok(())
+    }
+
+    /// 密钥轮换 (同步版本别名)
+    pub fn needs_rotation_sync(&self) -> bool {
+        let key_manager = self.key_manager.read().unwrap();
+        key_manager.should_rotate()
+    }
+}
+
+// ========== AuthenticatedUser (用于提取器) ==========
+
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub user_id: String,
     pub username: String,
     pub tier: String,
-    pub scopes: Vec<String>,
+    pub token_version: i32,
     pub balance: i64,
+    pub scopes: Vec<String>,
 }
 
-// 简化实现: 直接使用State提取，不使用FromRequestParts
-// AuthenticatedUser在中间件中已经添加到extensions中
+// ========== 缓存统计 ==========
+
+#[derive(Debug, Clone)]
+pub struct CacheStats {
+    pub local_size: u64,
+    pub local_hits: u64,
+    pub local_misses: u64,
+    pub redis_size: u64,
+    pub hit_count: u64,
+    pub miss_count: u64,
+    pub hit_rate: f64,
+    pub size: u64,
+}

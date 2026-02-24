@@ -54,6 +54,8 @@ pub struct UserInfo {
     pub balance: i64,
     pub token_version: i32,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
 }
 
 /// 权限对象

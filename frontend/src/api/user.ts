@@ -14,31 +14,31 @@ import type {
 export const userApi = {
   // 登录
   login: (data: LoginRequest) =>
-    apiClient.post<LoginResponse>('/user/login', data),
+    apiClient.post<LoginResponse>('/api/user/login', data),
 
   // 注册
   register: (data: RegisterRequest) =>
-    apiClient.post<LoginResponse>('/user/register', data),
+    apiClient.post<LoginResponse>('/api/user/register', data),
+
+  // 获取用户资料
+  getProfile: (data: ProfileRequest) =>
+    apiClient.post<ProfileResponse>('/api/user/profile', data),
 
   // 获取余额
   getBalance: () =>
-    apiClient.get<BalanceResponse>('/user/balance'),
-
-  // 获取用户资料
-  getProfile: (username?: string) =>
-    apiClient.post<ProfileResponse>('/user/profile', username ? { username } : {}),
-
-  // 更新用户资料
-  updateProfile: (username: string) =>
-    apiClient.post<ProfileResponse>('/user/profile', { username }),
+    apiClient.get<BalanceResponse>('/api/user/balance'),
 
   // 获取使用历史
   getHistory: () =>
-    apiClient.get<HistoryResponse>('/user/history'),
+    apiClient.get<HistoryResponse>('/api/user/history'),
 
   // 修改密码
   changePassword: (data: ChangePasswordRequest) =>
-    apiClient.post<ChangePasswordResponse>('/user/change-password', data)
+    apiClient.post<ChangePasswordResponse>('/api/user/change-password', data),
+
+  // 充值
+  recharge: (data: { code: string }) =>
+    apiClient.post<{ success: boolean; message: string; amount?: number }>('/api/user/recharge', data)
 }
 
 export default userApi

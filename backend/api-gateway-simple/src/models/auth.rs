@@ -16,9 +16,10 @@ pub struct TokenQueryResponse {
     pub can_proceed: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LoginRequest {
-    pub username: String,
+    /// 兼容用户名或邮箱登录
+    pub account: String,
     pub password: String,
 }
 

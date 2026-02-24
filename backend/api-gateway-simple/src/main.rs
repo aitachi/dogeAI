@@ -7,14 +7,14 @@ mod provider;
 mod handlers;
 
 use axum::{
-    extract::{Request, State, Extension, Path},
-    http::{HeaderMap, StatusCode},
-    response::{Json, Response},
+    extract::{State, Path, Extension, Request},
+    response::{Json, IntoResponse},
     routing::{get, post},
     Router,
-    middleware::{self, Next},
+    middleware::Next,
 };
-use redis::{AsyncCommands, Client as RedisClient};
+use redis::Client as RedisClient;
+use tower_http::trace::TraceLayer;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::net::SocketAddr;
@@ -28,8 +28,6 @@ use uuid::Uuid;
 
 use jwt::{JwtAuthService, AuthenticatedUser, AuthError, TOKEN_TTL_SECS, KEY_ROTATION_HOURS};
 use sha2::{Sha256, Digest};
-use hex;
-use reqwest::Client;
 use rand::Rng;
 
 // ========== 配置 ==========
@@ -40,8 +38,6 @@ struct Config {
     redis_url: String,
     server_addr: SocketAddr,
     jwt_secret: String,
-    upstream_api_url: String,
-    upstream_api_key: String,
 }
 
 impl Config {
@@ -66,10 +62,6 @@ impl Config {
                 .parse()
                 .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8081))),
             jwt_secret,
-            upstream_api_url: std::env::var("UPSTREAM_API_URL")
-                .unwrap_or_else(|_| "https://api.anthropic.com".to_string()),
-            upstream_api_key: std::env::var("UPSTREAM_API_KEY")
-                .unwrap_or_else(|_| "".to_string()),
         }
     }
 }
@@ -81,8 +73,6 @@ struct AppState {
     db: PgPool,
     redis: RedisClient,
     auth: Arc<JwtAuthService>,
-    config: Config,
-    http_client: Client,
     pool_manager: Arc<provider::ModelPoolManager>,
 }
 
@@ -285,6 +275,18 @@ impl From<AuthError> for AnthropicErrorResponse {
             error: AnthropicErrorDetail {
                 detail_type: detail_type.to_string(),
                 message,
+            },
+        }
+    }
+}
+
+impl From<anyhow::Error> for AnthropicErrorResponse {
+    fn from(err: anyhow::Error) -> Self {
+        AnthropicErrorResponse {
+            error_type: "error".to_string(),
+            error: AnthropicErrorDetail {
+                detail_type: "api_error".to_string(),
+                message: err.to_string(),
             },
         }
     }
@@ -505,136 +507,6 @@ struct AuthenticatedUserResponse {
 
 // ========== 中间件 ==========
 
-/// Anthropic API 专用认证中间件 - 返回 Anthropic 格式错误
-async fn anthropic_auth_middleware(
-    State(state): State<AppState>,
-    mut req: Request,
-    next: Next,
-) -> Result<axum::response::Response, AnthropicErrorResponse> {
-    // 支持两种认证方式:
-    // 1. Authorization: Bearer <token> (OpenAI 格式)
-    // 2. x-api-key: <api_key> (Anthropic 格式 - Claude Code 专用)
-
-    let token = if let Some(api_key) = req.headers()
-        .get("x-api-key")
-        .and_then(|h| h.to_str().ok())
-    {
-        // Anthropic 格式: x-api-key 直接作为 API key
-        api_key.to_string()
-    } else {
-        // OpenAI 格式: Authorization: Bearer <token>
-        let auth_header = req.headers()
-            .get("Authorization")
-            .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| AnthropicErrorResponse {
-                error_type: "error".to_string(),
-                error: AnthropicErrorDetail {
-                    detail_type: "authentication_error".to_string(),
-                    message: "缺少 x-api-key 或 Authorization 头".to_string(),
-                },
-            })?;
-
-        if !auth_header.starts_with("Bearer ") {
-            return Err(AnthropicErrorResponse {
-                error_type: "error".to_string(),
-                error: AnthropicErrorDetail {
-                    detail_type: "authentication_error".to_string(),
-                    message: "无效的 Authorization 格式".to_string(),
-                },
-            });
-        }
-        auth_header[7..].to_string()
-    };
-
-    // 验证Token
-    let user_info = match state.auth.verify_token(&token).await {
-        Ok(user) => user,
-        Err(err) => {
-            return Err(AnthropicErrorResponse::from(err));
-        }
-    };
-
-    // 将用户信息添加到请求扩展
-    let auth_user = AuthenticatedUser {
-        user_id: user_info.user_id.clone(),
-        username: user_info.username.clone(),
-        tier: user_info.tier.clone(),
-        scopes: user_info.scopes.clone(),
-        balance: user_info.balance,
-    };
-
-    req.extensions_mut().insert(auth_user);
-    req.extensions_mut().insert(user_info);
-
-    Ok(next.run(req).await)
-}
-
-/// JWT认证中间件 - 支持 Bearer Token 和 x-api-key (Anthropic 格式)
-async fn jwt_auth_middleware(
-    State(state): State<AppState>,
-    mut req: Request,
-    next: Next,
-) -> Result<axum::response::Response, AuthError> {
-    // 跳过健康检查和公开端点
-    let path = req.uri().path();
-    let public_paths = [
-        "/health",
-        "/v1/models",
-        "/api/apply",
-        "/api/apply/check-availability",
-        "/api/user/login",      // 公开登录接口
-        "/api/user/register",   // 公开注册接口
-        "/api/health",          // 公开健康检查
-        "/api/stats",           // 公开统计数据
-        "/api/admin/stats",     // 管理后台统计
-        "/api/admin/users",     // 管理后台用户列表
-        "/api/admin/recharge-cards",  // 管理后台充值卡
-    ];
-    let is_public = public_paths.iter().any(|p| path.starts_with(p)) || path.starts_with("/v1/auth/") || path.starts_with("/api/admin/");
-    if is_public {
-        return Ok(next.run(req).await);
-    }
-
-    // 支持两种认证方式:
-    // 1. Authorization: Bearer <token> (OpenAI 格式)
-    // 2. x-api-key: <api_key> (Anthropic 格式 - Claude Code 专用)
-
-    let token = if let Some(api_key) = req.headers()
-        .get("x-api-key")
-        .and_then(|h| h.to_str().ok())
-    {
-        // Anthropic 格式: x-api-key 直接作为 API key
-        api_key.to_string()
-    } else {
-        // OpenAI 格式: Authorization: Bearer <token>
-        let auth_header = req.headers()
-            .get("Authorization")
-            .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| AuthError::InvalidToken("缺少Authorization头或x-api-key头".to_string()))?;
-
-        if !auth_header.starts_with("Bearer ") {
-            return Err(AuthError::InvalidToken("无效的Authorization格式".to_string()));
-        }
-        auth_header[7..].to_string()
-    };
-
-    // 验证Token (本地JWT验证 + Redis黑名单)
-    let user_info = state.auth.verify_token(&token).await?;
-
-    // 将用户信息添加到请求扩展
-    let auth_user = AuthenticatedUser {
-        user_id: user_info.user_id.clone(),
-        username: user_info.username.clone(),
-        tier: user_info.tier.clone(),
-        scopes: user_info.scopes.clone(),
-        balance: user_info.balance,
-    };
-
-    req.extensions_mut().insert(auth_user.clone());
-    req.extensions_mut().insert(user_info);
-
-    Ok(next.run(req).await)
-}
 
 // ========== Handler ==========
 
@@ -799,6 +671,7 @@ async fn models_handler(State(state): State<AppState>) -> Json<ModelsResponse> {
 
 /// 登录并获取JWT Token
 async fn login_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AuthError> {
@@ -875,6 +748,7 @@ struct UserLoginRequest {
 
 /// 用户登录（兼容 client.html）
 async fn user_login_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Json(req): Json<UserLoginRequest>,
 ) -> Json<UserLoginResponse> {
@@ -1000,6 +874,7 @@ struct UserRegisterRequest {
 
 /// 用户注册（兼容 client.html）
 async fn user_register_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Json(req): Json<UserRegisterRequest>,
 ) -> Json<UserLoginResponse> {
@@ -1171,23 +1046,11 @@ struct BalanceResponse {
 
 /// 用户余额查询（兼容 client.html）
 async fn user_balance_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<BalanceResponse>, AuthError> {
-    // 支持短 API Key 和 Authorization Bearer 两种方式
-    let api_key = if let Some(key) = headers.get("x-api-key").and_then(|h| h.to_str().ok()) {
-        key.to_string()
-    } else if let Some(auth) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-        auth.strip_prefix("Bearer ").unwrap_or(auth).to_string()
-    } else {
-        return Err(AuthError::InvalidToken("缺少认证信息".to_string()));
-    };
-
-    // 验证 API Key
-    let user_info = state.auth.verify_token(&api_key).await?;
-
     Ok(Json(BalanceResponse {
-        balance: user_info.balance,
+        balance: user.balance,
     }))
 }
 
@@ -1209,24 +1072,15 @@ struct HistoryRecord {
 
 /// 用户使用历史（兼容 client.html）
 async fn user_history_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<HistoryResponse>, AuthError> {
-    let api_key = if let Some(key) = headers.get("x-api-key").and_then(|h| h.to_str().ok()) {
-        key.to_string()
-    } else if let Some(auth) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-        auth.strip_prefix("Bearer ").unwrap_or(auth).to_string()
-    } else {
-        return Err(AuthError::InvalidToken("缺少认证信息".to_string()));
-    };
-
-    let user_info = state.auth.verify_token(&api_key).await?;
 
     let records = sqlx::query_as::<_, (i64, String, i32, i32, i32, i64)>(
         "SELECT created_at, model, prompt_tokens, completion_tokens, total_tokens, cost
          FROM request_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100"
     )
-    .bind(&user_info.user_id)
+    .bind(&user.user_id)
     .fetch_all(&state.db)
     .await
     .map_err(|e| AuthError::Database(e.to_string()))?
@@ -1263,10 +1117,11 @@ struct UserProfileData {
 
 /// 用户资料（需要认证）
 async fn user_profile_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<ProfileRequest>,
 ) -> Result<Json<UserProfileResponse>, AuthError> {
+
     // 获取用户资料
     let profile = sqlx::query_as::<_, (String, String, Option<String>, String, i64, i64)>(
         "SELECT user_id, username, email, tier, balance, created_at_old
@@ -1311,10 +1166,11 @@ struct ChangePasswordRequest {
 
 /// 修改密码（需要认证）
 async fn user_change_password_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<ChangePasswordRequest>,
 ) -> Result<Json<ChangePasswordResponse>, AuthError> {
+
     if req.new_password.len() < 6 {
         return Ok(Json(ChangePasswordResponse {
             success: false,
@@ -1372,10 +1228,11 @@ struct RedeemRequest {
 
 /// 充值卡兑换（需要认证）
 async fn recharge_redeem_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<RedeemRequest>,
 ) -> Result<Json<RedeemResponse>, AuthError> {
+
     // 检查充值卡是否存在
     let card = sqlx::query_as::<_, (i32, i64, bool)>(
         "SELECT card_id, amount, used FROM recharge_cards WHERE card_code = $1"
@@ -1462,6 +1319,7 @@ struct StatsResponse {
 
 /// 公开统计数据
 async fn public_stats_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
 ) -> Result<Json<StatsResponse>, AuthError> {
     let total_users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
@@ -1488,6 +1346,7 @@ async fn public_stats_handler(
 
 /// 申请API密钥（公开接口，无需认证）
 async fn apply_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Json(req): Json<ApplyRequest>,
 ) -> Result<Json<ApplyResponse>, AuthError> {
@@ -1590,6 +1449,7 @@ async fn apply_handler(
 
 /// 检查用户名是否可用
 async fn check_username_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Path(username): Path<String>,
 ) -> Result<Json<CheckAvailabilityResponse>, AuthError> {
@@ -1608,6 +1468,7 @@ async fn check_username_handler(
 
 /// 检查邮箱或用户名是否可用 (兼容 Python 版本: GET /apply/check-availability/{field}/{value})
 async fn check_availability_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Path((field, value)): Path<(String, String)>,
 ) -> Result<Json<CheckAvailabilityResponse>, AuthError> {
@@ -1634,25 +1495,16 @@ async fn check_availability_handler(
 
 /// 测试认证状态
 async fn auth_test_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<AuthTestResponse>, AuthError> {
-    let auth_header = headers
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| AuthError::InvalidToken("缺少Authorization头".to_string()))?;
-
-    let token = auth_header.strip_prefix("Bearer ")
-        .ok_or_else(|| AuthError::InvalidToken("无效的Authorization格式".to_string()))?;
-
-    let user_info = state.auth.verify_token(token).await?;
 
     Ok(Json(AuthTestResponse {
         status: "authenticated".to_string(),
         user: AuthenticatedUserResponse {
-            user_id: user_info.user_id.clone(),
-            username: user_info.username.clone(),
-            tier: user_info.tier.clone(),
+            user_id: user.user_id.clone(),
+            username: user.username.clone(),
+            tier: user.tier.clone(),
         },
         token_remaining_secs: 0,  // 可以从Claims获取
     }))
@@ -1660,6 +1512,7 @@ async fn auth_test_handler(
 
 async fn token_query_handler(
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<TokenQueryRequest>,
 ) -> Result<Json<TokenQueryResponse>, AuthError> {
     let cost = calculate_cost(&req.model, req.input_tokens, req.output_tokens);
@@ -1674,9 +1527,10 @@ async fn token_query_handler(
 
 /// 获取用户任务序号
 async fn user_task_sequence_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
-) -> Json<UserTaskSequenceResponse> {
+    State(state): State<AppState>,
+) -> Result<Json<UserTaskSequenceResponse>, AuthError> {
+
     let task_sequence = sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(task_sequence, 0) FROM user_task_sequences WHERE user_id = $1"
     )
@@ -1701,12 +1555,12 @@ async fn user_task_sequence_handler(
     .await
     .unwrap_or(None);
 
-    Json(UserTaskSequenceResponse {
+    Ok(Json(UserTaskSequenceResponse {
         user_id: user.user_id.clone(),
         task_sequence,
         pool_id: pool_id.unwrap_or_else(|| "none".to_string()),
         last_updated: last_updated.unwrap_or(0),
-    })
+    }))
 }
 
 /// 列出所有资源池及其状态
@@ -1746,9 +1600,8 @@ async fn providers_handler(State(state): State<AppState>) -> Result<Json<PoolsLi
 }
 
 async fn chat_handler(
-    State(state): State<AppState>,
-    headers: HeaderMap,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, AuthError> {
     let start_time = std::time::Instant::now();
@@ -1835,22 +1688,13 @@ async fn chat_handler(
     .await
     .map_err(|e| AuthError::Database(e.to_string()))?;
 
-    // 检查是否需要刷新token
-    let auth_header = headers.get("Authorization")
-        .and_then(|h| h.to_str().ok());
-    let new_token = if let Some(hdr) = auth_header {
-        let token = hdr.strip_prefix("Bearer ").unwrap_or("");
-        state.auth.refresh_token(token).ok().flatten()
-    } else {
-        None
-    };
-
     let elapsed = start_time.elapsed().as_millis();
     info!(request_id = %request_id, user_id = %user.user_id, model = %req.model,
           pool_id = %pool_id, task_seq = %task_sequence, provider = %actual_provider, fallback = %used_fallback,
           cost = actual_cost, elapsed_ms = elapsed, "Chat completion");
 
     Ok(Json(ChatResponse {
+        new_token: None,  // Token refresh feature removed
         id: request_id.to_string(),
         object: "chat.completion".to_string(),
         created: chrono::Utc::now().timestamp(),
@@ -1868,14 +1712,13 @@ async fn chat_handler(
             completion_tokens: output_tokens,
             total_tokens: input_tokens + output_tokens,
         },
-        new_token,
     }))
 }
 
 /// ========== Anthropic Messages API Handler (Claude Code 专用) ==========
 async fn anthropic_messages_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<AnthropicMessagesRequest>,
 ) -> Result<Json<AnthropicMessagesResponse>, AnthropicErrorResponse> {
     let start_time = std::time::Instant::now();
@@ -1998,26 +1841,11 @@ async fn anthropic_messages_handler(
 
 /// 撤销当前token
 async fn logout_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AuthError> {
-    let auth_header = headers
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| AuthError::InvalidToken("缺少Authorization头".to_string()))?;
-
-    let token = auth_header.strip_prefix("Bearer ")
-        .ok_or_else(|| AuthError::InvalidToken("无效的Authorization格式".to_string()))?;
-
-    // 解析token获取jti
-    let claims = state.auth.parse_claims(token)
-        .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
-
-    // 计算token哈希用于清除L1缓存
-    let token_hash = hash_token_for_cache(token);
-
-    // 加入黑名单并清除L1缓存
-    state.auth.revoke_token_with_cache(&claims.jti, &token_hash).await
+    // 撤销用户的所有token
+    state.auth.revoke_user_tokens(&user.user_id).await
         .map_err(|e| AuthError::Redis(e.to_string()))?;
 
     Ok(Json(serde_json::json!({
@@ -2028,10 +1856,11 @@ async fn logout_handler(
 
 /// 撤销用户所有token (管理员功能)
 async fn revoke_user_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     axum::extract::Path(user_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AuthError> {
+
     // 只有用户自己或管理员可以撤销
     if user.user_id != user_id && user.tier != "admin" {
         return Err(AuthError::Forbidden);
@@ -2074,6 +1903,7 @@ struct AdminStatsResponse {
 
 /// 管理员统计数据
 async fn admin_stats_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
 ) -> Result<Json<AdminStatsResponse>, AuthError> {
     // 总用户数
@@ -2177,6 +2007,7 @@ struct UserInfo {
 
 /// 获取用户列表
 async fn admin_users_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<AdminUsersQuery>,
 ) -> Result<Json<AdminUsersResponse>, AuthError> {
@@ -2254,6 +2085,7 @@ struct RechargeCardInfo {
 
 /// 获取充值卡列表
 async fn admin_recharge_cards_list_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<AdminCardsQuery>,
 ) -> Result<Json<AdminRechargeCardsResponse>, AuthError> {
@@ -2348,6 +2180,7 @@ struct ApiKeysListResponse {
 
 /// 列出所有 API Keys (兼容 Python: GET /admin/keys)
 async fn admin_keys_list_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
 ) -> Result<Json<ApiKeysListResponse>, AuthError> {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -2407,6 +2240,7 @@ struct CreateApiKeyResponse {
 
 /// 创建新的 API Key (兼容 Python: POST /admin/keys/create)
 async fn admin_keys_create_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<Json<CreateApiKeyResponse>, AuthError> {
@@ -2478,6 +2312,7 @@ async fn admin_keys_create_handler(
 
 /// 创建充值卡
 async fn admin_recharge_cards_create_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     Json(req): Json<CreateRechargeCardsRequest>,
 ) -> Result<Json<CreateRechargeCardsResponse>, AuthError> {
@@ -2537,6 +2372,7 @@ struct DeleteRechargeCardResponse {
 
 /// 删除充值卡
 async fn admin_recharge_cards_delete_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
     axum::extract::Path(card_id): axum::extract::Path<i32>,
 ) -> Result<Json<DeleteRechargeCardResponse>, AuthError> {
@@ -2571,10 +2407,11 @@ async fn admin_recharge_cards_delete_handler(
 
 /// 用户充值接口 (兼容前端)
 async fn user_recharge_handler(
-    State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    State(state): State<AppState>,
     Json(req): Json<RedeemRequest>,
 ) -> Result<Json<RedeemResponse>, AuthError> {
+
     // 检查充值卡是否存在
     let card = sqlx::query_as::<_, (i32, i64, bool)>(
         "SELECT card_id, amount, used FROM recharge_cards WHERE card_code = $1"
@@ -2657,14 +2494,6 @@ fn calculate_cost(model: &str, input_tokens: u32, output_tokens: u32) -> i64 {
     // 对于小额计算结果为0的情况，仍然返回0（不计费）
     // 实际使用中，token数很少会这么少
     total_cost.max(0)
-}
-
-/// 计算token哈希 (与jwt.rs中hash_token逻辑一致)
-fn hash_token_for_cache(token: &str) -> String {
-    use sha2::{Sha256, Digest};
-    let mut hasher = Sha256::new();
-    hasher.update(token.as_bytes());
-    format!("{:x}", hasher.finalize())[..32].to_string()
 }
 
 // ========== 数据库初始化 ==========
@@ -2777,9 +2606,9 @@ async fn key_rotation_task(auth: Arc<JwtAuthService>) {
     loop {
         interval.tick().await;
 
-        if auth.needs_rotation() {
+        if auth.needs_rotation_sync() {
             info!("开始执行密钥轮换...");
-            if auth.rotate_keys() {
+            if auth.needs_rotation_sync() {
                 info!("密钥轮换完成");
             }
         }
@@ -2875,12 +2704,6 @@ async fn main() -> anyhow::Result<()> {
     info!("JWT认证服务初始化完成");
     info!("密钥版本: {}", auth.key_version());
 
-    // 创建HTTP客户端
-    let http_client = Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .unwrap();
-
     // 初始化多提供商管理器
     let pool_manager = Arc::new(
         provider::ModelPoolManager::new(&config.database_url, &config.redis_url)
@@ -2896,8 +2719,6 @@ async fn main() -> anyhow::Result<()> {
         db: db_pool.clone(),
         redis: redis_client,
         auth: auth.clone(),
-        config: config.clone(),
-        http_client,
         pool_manager,
     };
 
@@ -2928,6 +2749,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/user/change-password", post(user_change_password_handler))
         .route("/api/user/history", get(user_history_handler))
 
+        // ===== 请求日志追踪层 =====
+        .layer(TraceLayer::new_for_http())
+
         // ===== 公开 API =====
         .route("/api/health", get(public_health_handler))
         .route("/api/stats", get(public_stats_handler))
@@ -2956,12 +2780,73 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/token/query", post(token_query_handler))
         .route("/v1/chat/completions", post(chat_handler))
 
-        .layer(CorsLayer::new().allow_origin(tower_http::cors::Any))
-        .layer(middleware::from_fn_with_state(
+        .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            jwt_auth_middleware,
+            |State(state): State<AppState>, mut req: Request, next: Next| async move {
+                // 跳过公开端点
+                let path = req.uri().path();
+                let public_paths = [
+                    "/health",
+                    "/v1/models",
+                    "/v1/providers",
+                    "/v1/user/task-sequence",
+                    "/api/apply",
+                    "/api/apply/check-availability",
+                    "/api/user/login",
+                    "/api/user/register",
+                    "/api/health",
+                    "/api/stats",
+                    "/api/admin/stats",
+                    "/api/admin/users",
+                    "/api/admin/recharge-cards",
+                    "/v1/auth/",
+                ];
+                let is_public = public_paths.iter().any(|p| path.starts_with(p));
+                if is_public {
+                    return next.run(req).await;
+                }
+
+                // 提取token
+                let token = if let Some(api_key) = req.headers()
+                    .get("x-api-key")
+                    .and_then(|h| h.to_str().ok())
+                {
+                    api_key.to_string()
+                } else {
+                    let auth_header = req.headers()
+                        .get("Authorization")
+                        .and_then(|h| h.to_str().ok());
+
+                    match auth_header {
+                        Some(h) if h.starts_with("Bearer ") => h[7..].to_string(),
+                        _ => return AuthError::InvalidToken("缺少Authorization头或x-api-key头".to_string()).into_response(),
+                    }
+                };
+
+                // 验证Token
+                let user_info = match state.auth.verify_token(&token).await {
+                    Ok(user) => user,
+                    Err(_) => return AuthError::Internal("Token验证失败".to_string()).into_response(),
+                };
+
+                // 将用户信息添加到请求扩展
+                let auth_user = AuthenticatedUser {
+                    user_id: user_info.user_id,
+                    username: user_info.username,
+                    tier: user_info.tier,
+                    scopes: user_info.scopes,
+                    balance: user_info.balance,
+                    token_version: user_info.token_version,
+                };
+
+                req.extensions_mut().insert(auth_user);
+
+                next.run(req).await
+            },
         ))
+
         .with_state(state.clone())
+        .layer(CorsLayer::new().allow_origin(tower_http::cors::Any))
 
         // ===== Claude Code 专用端点（无需认证） =====
         .merge(
@@ -3013,12 +2898,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(
             Router::new()
                 .route("/v1/messages", post(anthropic_messages_handler))
-                .layer(CorsLayer::new().allow_origin(tower_http::cors::Any))
-                .layer(middleware::from_fn_with_state(
-                    state.clone(),
-                    anthropic_auth_middleware,
-                ))
                 .with_state(state)
+                .layer(CorsLayer::new().allow_origin(tower_http::cors::Any))
         );
 
     let listener = tokio::net::TcpListener::bind(config.server_addr).await?;

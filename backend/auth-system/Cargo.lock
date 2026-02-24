@@ -108,6 +108,7 @@ name = "auth-system"
 version = "2.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
  "config",

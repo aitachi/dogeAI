@@ -265,7 +265,6 @@ fn gen_oauth_code() -> String {
 
 /// 生成 OAuth Token
 fn gen_oauth_token(prefix: &str) -> String {
-    use rand::Rng;
     let uuid1 = Uuid::new_v4().to_string().replace("-", "");
     let uuid2 = Uuid::new_v4().to_string().replace("-", "");
     format!("{}-{}-{}", prefix, &uuid1[..16], &uuid2[..8])
